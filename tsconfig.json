@@ -1,0 +1,7 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/alchemy-telegram/tsconfig.json" },
+    { "path": "./packages/distilled-telegram/tsconfig.json" }
+  ]
+}

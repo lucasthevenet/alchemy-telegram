@@ -1,0 +1,28 @@
+{
+  "name": "distilled-telegram",
+  "version": "1.0.0-rc.6",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lucasthevenet/alchemy-telegram",
+    "directory": "packages/distilled-telegram"
+  },
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "lib",
+    "src"
+  ],
+  "scripts": {},
+  "dependencies": {
+    "@distilled.cloud/core": "1.0.0-rc.6"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:tooling",
+    "@types/node": "catalog:tooling",
+    "@effect/platform-bun": "catalog:effect"
+  },
+  "peerDependencies": {
+    "effect": "catalog:effect"
+  }
+}
