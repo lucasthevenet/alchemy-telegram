@@ -1,0 +1,30 @@
+{
+  "description": "Restore the scalar and recursive variants omitted from RichText by @gramio/schema-parser 1.2.0.",
+  "object": "RichText",
+  "assert": {
+    "type": "oneOf"
+  },
+  "appendVariants": [
+    {
+      "key": "",
+      "type": "string",
+      "required": true,
+      "description": "A plain text fragment."
+    },
+    {
+      "key": "",
+      "type": "array",
+      "required": true,
+      "description": "A sequence of rich text fragments.",
+      "arrayOf": {
+        "key": "",
+        "type": "reference",
+        "required": true,
+        "reference": {
+          "name": "RichText",
+          "anchor": "#richtext"
+        }
+      }
+    }
+  ]
+}

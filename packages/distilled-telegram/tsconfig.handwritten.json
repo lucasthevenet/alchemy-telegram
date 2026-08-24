@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "include": [
+    "src/credentials.ts",
+    "src/errors.ts",
+    "src/files.ts",
+    "src/protocol.ts",
+    "src/retry.ts",
+    "src/traits.ts"
+  ],
+  "compilerOptions": {
+    "noCheck": false,
+    "noEmit": true
+  }
+}

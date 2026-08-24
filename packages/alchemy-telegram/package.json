@@ -1,6 +1,6 @@
 {
   "name": "alchemy-telegram",
-  "version": "1.0.0-rc.6",
+  "version": "0.1.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/lucasthevenet/alchemy-telegram",
@@ -9,20 +9,38 @@
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,
-  "files": [
-    "lib",
-    "src"
-  ],
-  "scripts": {},
+  "files": ["lib", "src"],
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "bun": "./src/index.ts",
+      "worker": "./src/index.ts",
+      "default": "./lib/index.js"
+    },
+    "./*": {
+      "types": "./lib/*.d.ts",
+      "bun": "./src/*.ts",
+      "worker": "./src/*.ts",
+      "default": "./lib/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test"
+  },
   "dependencies": {
-    "@distilled.cloud/core": "1.0.0-rc.6"
+    "@distilled.cloud/core": "1.0.0-rc.6",
+    "distilled-telegram": "0.1.0"
   },
   "devDependencies": {
     "@types/bun": "catalog:tooling",
     "@types/node": "catalog:tooling",
-    "@effect/platform-bun": "catalog:effect"
+    "@effect/platform-bun": "catalog:effect",
+    "alchemy": "2.0.0-beta.74"
   },
   "peerDependencies": {
+    "alchemy": "2.0.0-beta.74",
     "effect": "catalog:effect"
   }
 }

@@ -1,0 +1,5 @@
+# Upstream Telegram HTML is a byte-for-byte provenance snapshot, not source.
+packages/distilled-telegram/spec/*.html
+packages/distilled-telegram/.generated-ir/**
+packages/distilled-telegram/.generated-specs/**
+.zed/**
