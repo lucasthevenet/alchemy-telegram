@@ -33,14 +33,14 @@
         "distilled-telegram": "0.1.0",
       },
       "devDependencies": {
-        "@effect/platform-bun": "catalog:effect",
-        "@types/bun": "catalog:tooling",
-        "@types/node": "catalog:tooling",
+        "@effect/platform-bun": ">=4.0.0-rc.111 || >=4.0.0",
+        "@types/bun": "latest",
+        "@types/node": "latest",
         "alchemy": "2.0.0-beta.74",
       },
       "peerDependencies": {
         "alchemy": "2.0.0-beta.74",
-        "effect": "catalog:effect",
+        "effect": ">=4.0.0-rc.111 || >=4.0.0",
       },
     },
     "packages/distilled-telegram": {
@@ -50,14 +50,14 @@
         "@distilled.cloud/core": "1.0.0-rc.6",
       },
       "devDependencies": {
-        "@effect/platform-bun": "catalog:effect",
+        "@effect/platform-bun": ">=4.0.0-rc.111 || >=4.0.0",
         "@gramio/schema-parser": "1.2.0",
-        "@types/bun": "catalog:tooling",
-        "@types/node": "catalog:tooling",
+        "@types/bun": "latest",
+        "@types/node": "latest",
         "cheerio": "1.2.0",
       },
       "peerDependencies": {
-        "effect": "catalog:effect",
+        "effect": ">=4.0.0-rc.111 || >=4.0.0",
       },
     },
   },

@@ -1,0 +1,72 @@
+name: Telegram API watcher
+
+on:
+  schedule:
+    - cron: "43 6 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: telegram-api-watcher
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install locked dependencies
+        run: bun ci
+
+      - name: Refresh upstream snapshots
+        run: bun run --cwd packages/distilled-telegram update:spec
+
+      - name: Detect upstream changes
+        id: changes
+        run: |
+          if git diff --quiet -- packages/distilled-telegram/spec; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push the review branch
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          BRANCH: automation/telegram-api-update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" || true
+          git checkout -B "$BRANCH"
+          git add packages/distilled-telegram/spec
+          git commit -m "chore: refresh Telegram API snapshots"
+          git push --force-with-lease origin "HEAD:$BRANCH"
+
+      - name: Open or update the review pull request
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: automation/telegram-api-update
+        run: |
+          number="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')"
+          if [ -z "$number" ]; then
+            gh pr create \
+              --head "$BRANCH" \
+              --base main \
+              --title "chore: review Telegram API snapshot update" \
+              --body "The scheduled watcher found upstream Telegram documentation changes. This PR only refreshes pinned inputs and provenance. Review the canonical diff, update version assertions and patches, regenerate, and run the full secured validation before merging. This workflow never merges or publishes."
+          else
+            gh pr comment "$number" --body "The scheduled watcher refreshed this review branch with the latest upstream snapshots."
+          fi

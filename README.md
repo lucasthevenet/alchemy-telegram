@@ -172,6 +172,17 @@ bun run generate:check
 bun run check
 ```
 
+## Release automation
+
+Both packages are prepared and published in lockstep through GitHub Actions.
+`bun run release:validate` checks deterministic generation, provenance, package
+metadata, exports, and npm tarball contents without publishing. Publishing only
+runs when a GitHub Release is published, after the secured live lifecycle suite
+passes. See the [release guide](./docs/releasing.md) for setup and recovery.
+
+The scheduled Telegram API watcher can only update its review branch and open or
+comment on a PR. It never merges or publishes automatically.
+
 ## Live tests
 
 Live tests are deliberately separate from the ordinary test suite. Put a token

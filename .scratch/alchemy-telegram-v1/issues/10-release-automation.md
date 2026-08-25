@@ -15,3 +15,11 @@ Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09
 
 ## Comments
 
+- Added lockstep version preparation and a release preflight that validates all
+  ordinary checks, deterministic generation, pinned provenance hashes, package
+  exports, npm-compatible metadata, and tarball allowlists.
+- Added GitHub Actions for pull-request CI, serialized scheduled live tests,
+  GitHub Release-driven npm provenance publishing, and a Telegram API watcher
+  restricted to a review branch and pull request.
+- Added initial `0.1.0` package metadata, Apache-2.0 notices, npm publishing
+  configuration, and operator documentation for token-to-OIDC migration.

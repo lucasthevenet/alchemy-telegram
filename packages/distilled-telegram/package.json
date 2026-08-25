@@ -1,15 +1,30 @@
 {
   "name": "distilled-telegram",
   "version": "0.1.0",
+  "description": "Generated Effect-native SDK for Telegram Bot API 10.3.",
+  "keywords": [
+    "api",
+    "bot",
+    "effect",
+    "sdk",
+    "telegram"
+  ],
+  "homepage": "https://github.com/lucasthevenet/alchemy-telegram#readme",
+  "bugs": "https://github.com/lucasthevenet/alchemy-telegram/issues",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lucasthevenet/alchemy-telegram",
+    "url": "git+https://github.com/lucasthevenet/alchemy-telegram.git",
     "directory": "packages/distilled-telegram"
   },
-  "license": "Apache-2.0",
+  "files": [
+    "lib",
+    "src",
+    "API.md",
+    "README.md"
+  ],
   "type": "module",
   "sideEffects": false,
-  "files": ["lib", "src", "API.md", "README.md"],
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
@@ -60,6 +75,10 @@
       "default": "./lib/services/*.js"
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsc -b",
     "update:spec": "bun scripts/update-spec.ts",
@@ -74,13 +93,13 @@
     "@distilled.cloud/core": "1.0.0-rc.6"
   },
   "devDependencies": {
+    "@effect/platform-bun": ">=4.0.0-rc.111 || >=4.0.0",
     "@gramio/schema-parser": "1.2.0",
-    "cheerio": "1.2.0",
-    "@types/bun": "catalog:tooling",
-    "@types/node": "catalog:tooling",
-    "@effect/platform-bun": "catalog:effect"
+    "@types/bun": "latest",
+    "@types/node": "latest",
+    "cheerio": "1.2.0"
   },
   "peerDependencies": {
-    "effect": "catalog:effect"
+    "effect": ">=4.0.0-rc.111 || >=4.0.0"
   }
 }

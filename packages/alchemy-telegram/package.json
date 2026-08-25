@@ -1,15 +1,28 @@
 {
   "name": "alchemy-telegram",
   "version": "0.1.0",
+  "description": "Alchemy V2 providers and an Effect-native Telegram Bot application DSL.",
+  "keywords": [
+    "alchemy",
+    "bot",
+    "cloudflare",
+    "effect",
+    "telegram"
+  ],
+  "homepage": "https://github.com/lucasthevenet/alchemy-telegram#readme",
+  "bugs": "https://github.com/lucasthevenet/alchemy-telegram/issues",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lucasthevenet/alchemy-telegram",
+    "url": "git+https://github.com/lucasthevenet/alchemy-telegram.git",
     "directory": "packages/alchemy-telegram"
   },
-  "license": "Apache-2.0",
+  "files": [
+    "lib",
+    "src"
+  ],
   "type": "module",
   "sideEffects": false,
-  "files": ["lib", "src"],
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
@@ -24,6 +37,10 @@
       "default": "./lib/*.js"
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -35,13 +52,13 @@
     "distilled-telegram": "0.1.0"
   },
   "devDependencies": {
-    "@types/bun": "catalog:tooling",
-    "@types/node": "catalog:tooling",
-    "@effect/platform-bun": "catalog:effect",
+    "@effect/platform-bun": ">=4.0.0-rc.111 || >=4.0.0",
+    "@types/bun": "latest",
+    "@types/node": "latest",
     "alchemy": "2.0.0-beta.74"
   },
   "peerDependencies": {
     "alchemy": "2.0.0-beta.74",
-    "effect": "catalog:effect"
+    "effect": ">=4.0.0-rc.111 || >=4.0.0"
   }
 }
