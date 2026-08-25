@@ -33,6 +33,7 @@
     "format:check": "oxfmt '.' --check --ignore-path .oxfmtignore",
     "lint": "oxlint",
     "test": "bun test",
+    "test:live": "TELEGRAM_LIVE=1 bun --env-file=.env test ./packages/alchemy-telegram/test/live/telegram.live.test.ts",
     "check": "bun run format:check && bun run lint && bun run typecheck && bun test"
   },
   "devDependencies": {

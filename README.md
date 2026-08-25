@@ -141,6 +141,10 @@ removing a previously managed value restores Telegram's default. Token rotation
 is accepted only when `getMe` returns the same bot ID. A foreign Webhook is
 reported as unowned and requires explicit Alchemy adoption.
 
+Telegram has no operation that clears the irreducible default Bot name. Removing
+or destroying that declaration leaves its last value in place; localized name
+overrides and all managed description fields are reset normally.
+
 Because Webhook secrets are persisted in Alchemy state, use an encrypted state
 backend for production.
 
@@ -151,6 +155,34 @@ bun install
 bun run generate:check
 bun run check
 ```
+
+## Live tests
+
+Live tests are deliberately separate from the ordinary test suite. Put a token
+for a dedicated test Bot in the ignored root `.env`:
+
+```dotenv
+TELEGRAM_BOT_TOKEN=123456:secret
+```
+
+Then run:
+
+```sh
+bun run test:live
+```
+
+The suite verifies live identity decoding, typed/redacted Bot API failures, and
+the real Alchemy Command Set deploy → update → drift detection/repair → destroy
+lifecycle. It snapshots the existing default Command Set and restores it in an
+Effect release finalizer, including when an assertion fails. Do not terminate
+the process with `kill -9`, because no in-process finalizer can run after an
+unrecoverable process kill.
+
+Default Bot Profile mutation is intentionally excluded from repeatable live
+automation: Telegram applies approximately daily limits to name changes, and
+the irreducible default name cannot be cleared. Webhook HTTP delivery also
+requires a separately deployed public host and is covered by the portable route
+tests until a host-specific deployment fixture is supplied.
 
 `update:spec` is the only networked generation step. Normal generation uses the
 pinned official HTML/currencies snapshot, a pinned GramIO parser, repository

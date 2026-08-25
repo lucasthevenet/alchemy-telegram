@@ -16,3 +16,9 @@ Blocked by: 04, 05, 06, 07
 
 ## Comments
 
+- Added an opt-in `bun run test:live` suite. It exercises live identity,
+  typed/redacted API failures, and Command Set deploy/update/sync/destroy while
+  restoring the previously observed Command Set in an Effect release finalizer.
+- Repeatable Bot Profile mutation is excluded after Telegram demonstrated a
+  roughly daily default-name rate limit. Host-neutral Webhook tests remain
+  local; a full HTTP delivery test still requires a public host fixture.

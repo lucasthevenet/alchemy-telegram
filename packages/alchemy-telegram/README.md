@@ -29,4 +29,4 @@ application's Effect `HttpRouter` route Layers. The caller always supplies the
 origin; values such as `Cloudflare.Worker.URL` are supported.
 
 See the [workspace README](../../README.md) for the complete behavior and SDK
-usage.
+usage, including the opt-in live lifecycle test command.

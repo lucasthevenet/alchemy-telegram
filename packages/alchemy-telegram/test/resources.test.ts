@@ -6,6 +6,8 @@ import {
   BotIdentityMismatch,
   CommandSet,
   CommandSetProvider,
+  Profile,
+  ProfileProvider,
   WebhookConfig,
   WebhookProvider,
 } from "../src/resources.ts";
@@ -26,6 +28,52 @@ const lifecycleInput = {
 };
 
 describe("Alchemy Telegram providers", () => {
+  test("destroys a default profile without trying to clear its required name", async () => {
+    server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        const method = new URL(request.url).pathname.split("/").at(-1)!;
+        if (method === "getMe") {
+          return Response.json({
+            ok: true,
+            result: { id: 42, is_bot: true, first_name: "Bot" },
+          });
+        }
+        if (method === "setMyName") {
+          const body = (await request.json()) as { name?: string };
+          if (!body.name) {
+            return Response.json({
+              ok: false,
+              error_code: 400,
+              description: "default bot name cannot be empty",
+            });
+          }
+        }
+        return Response.json({ ok: true, result: true });
+      },
+    });
+    const props = {
+      token: Redacted.make("1:first"),
+      apiOrigin: server.url.origin,
+      default: {
+        name: "Managed Bot",
+        description: "Managed description",
+        short_description: "Managed short description",
+      },
+    };
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const provider = yield* Profile.Provider;
+        yield* provider.delete({
+          ...lifecycleInput,
+          olds: props,
+          output: { bot_id: 42, profile: { "": props.default } },
+        });
+      }).pipe(Effect.provide(ProfileProvider())),
+    );
+  });
+
   test("reconciles a command set and accepts same-bot token rotation", async () => {
     const methods: string[] = [];
     server = Bun.serve({

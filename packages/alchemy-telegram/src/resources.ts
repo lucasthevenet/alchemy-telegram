@@ -215,7 +215,11 @@ export const ProfileProvider = () =>
             news,
             Telegram.setMyName({ ...language, name: locale.name }),
           );
-        } else if (locale.name === undefined && old.name !== undefined) {
+        } else if (
+          language_code &&
+          locale.name === undefined &&
+          old.name !== undefined
+        ) {
           yield* call(news, Telegram.setMyName({ ...language, name: "" }));
         }
         if (
@@ -268,7 +272,9 @@ export const ProfileProvider = () =>
       yield* identify(olds, output.bot_id);
       for (const [language_code, locale] of Object.entries(profileMap(olds))) {
         const language = language_code ? { language_code } : {};
-        if (locale.name !== undefined) {
+        // Telegram does not permit clearing the irreducible default Bot name.
+        // An empty name only removes a localized override.
+        if (language_code && locale.name !== undefined) {
           yield* call(olds, Telegram.setMyName({ ...language, name: "" }));
         }
         if (locale.description !== undefined) {

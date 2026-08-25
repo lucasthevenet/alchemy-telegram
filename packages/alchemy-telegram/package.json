@@ -27,7 +27,8 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "test:live": "TELEGRAM_LIVE=1 bun --env-file=../../.env test ./test/live/telegram.live.test.ts"
   },
   "dependencies": {
     "@distilled.cloud/core": "1.0.0-rc.6",

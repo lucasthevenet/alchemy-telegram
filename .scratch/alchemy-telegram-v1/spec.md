@@ -169,6 +169,8 @@ does no host discovery. `origin` may be an Alchemy Output such as
 - Update all V1 configuration in place.
 - Never-declared properties are unmanaged. Removing previously managed values
   resets them to Telegram defaults.
+- Telegram's irreducible default Bot name has no empty/default reset operation;
+  removing it leaves the last managed value in place. Localized names reset.
 - Profile and Command Set declarations directly claim their slices.
 - A non-empty Webhook pointing elsewhere is unowned and requires explicit
   Alchemy adoption.
@@ -194,4 +196,3 @@ does no host discovery. `origin` may be an Alchemy Output such as
 - Provide examples for localization, all handler helpers, multiple Bots, local
   fixture delivery, explicit public origins, safe same-Bot token rotation, and
   foreign Webhook adoption.
-
