@@ -13,15 +13,17 @@ import type { BotApplication } from "./bot.ts";
 import { WebhookConfig } from "./resources.ts";
 
 export interface WebhookOptions {
-  readonly origin: Input<string>;
+  readonly origin:
+    | Input<string>
+    | Effect.Effect<Input<string>, unknown, unknown>;
   readonly path?: string;
   readonly allowedUpdates?: readonly string[];
   readonly dropPendingUpdates?: boolean;
 }
 
-/** @internal Resolves deferred Alchemy inputs such as Cloudflare.Worker.URL. */
+/** @internal Resolves plan-time Alchemy inputs, including nested Effects. */
 export const resolveOrigin = (
-  input: Input<string>,
+  input: WebhookOptions["origin"],
 ): Effect.Effect<string, unknown, unknown> =>
   Effect.gen(function* () {
     let current: unknown = input;

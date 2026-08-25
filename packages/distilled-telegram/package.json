@@ -9,7 +9,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,
-  "files": ["lib", "src"],
+  "files": ["lib", "src", "API.md", "README.md"],
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
@@ -64,7 +64,7 @@
     "build": "tsc -b",
     "update:spec": "bun scripts/update-spec.ts",
     "extract": "bun scripts/extract.ts",
-    "generate": "bun scripts/extract.ts && bun scripts/generate.ts",
+    "generate": "bun scripts/extract.ts && bun scripts/generate-docs.ts && bun scripts/generate.ts",
     "generate:check": "bun scripts/check-generated.ts",
     "generate:sdk": "bun scripts/generate.ts",
     "typecheck": "tsc -p tsconfig.handwritten.json && tsc -p tsconfig.scripts.json && tsc -p tsconfig.json",

@@ -26,7 +26,11 @@ const Routes = Telegram.Webhook(Bot, {
 
 Add `Telegram.providers()` to the Alchemy stack and merge `Routes` into the
 application's Effect `HttpRouter` route Layers. The caller always supplies the
-origin; values such as `Cloudflare.Worker.URL` are supported.
+plan-resolvable origin as a literal, Config value, or Alchemy Output. In Alchemy
+`2.0.0-beta.74`, `Cloudflare.Worker.URL` itself is runtime-deferred and is not a
+plan-time Webhook origin.
 
-See the [workspace README](../../README.md) for the complete behavior and SDK
-usage, including the opt-in live lifecycle test command.
+See the [Cloudflare Worker example](../../examples/cloudflare-worker) for a
+deployable multi-Bot stack, local fixtures, rotation, adoption, and security
+guidance. The [workspace README](../../README.md) documents the complete
+behavior and SDK usage, including the opt-in live lifecycle test command.

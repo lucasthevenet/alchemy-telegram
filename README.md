@@ -10,6 +10,11 @@ This monorepo publishes two lockstep packages:
 The provider configures an existing bot token. Telegram bot identity creation and
 deletion remain outside its scope.
 
+The [deployable Cloudflare Worker example](./examples/cloudflare-worker) covers
+localized configuration, every Update Handler, multiple Bot Applications,
+local fixtures, explicit origins, token rotation, Webhook adoption, and
+production state security.
+
 ## Install
 
 ```sh
@@ -79,14 +84,18 @@ explicitly and suppresses the automatic second answer.
 explicit and may be a deferred Alchemy input:
 
 ```ts
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Config from "effect/Config";
 import * as Telegram from "alchemy-telegram";
 
 const TelegramRoutes = Telegram.Webhook(NotificationsBot, {
-  origin: Cloudflare.Worker.URL,
+  origin: Config.string("TELEGRAM_PUBLIC_ORIGIN"),
   path: "/api/telegram/webhook",
 });
 ```
+
+The origin must resolve during planning. Alchemy `2.0.0-beta.74` exposes
+`Cloudflare.Worker.URL` as a runtime-deferred accessor, so use a literal, Config
+value, or plan-resolvable Alchemy Output instead.
 
 Merge `TelegramRoutes` with the rest of the application's route Layers and add
 the providers to the stack's provider Layer:
@@ -133,6 +142,10 @@ Uploads accept `Blob`, `File`, bytes, web streams, Effect byte streams, or
 `Api.Files.fromPath(...)` on Node/Bun. Nested uploads are converted recursively
 to Telegram `attach://` multipart references.
 
+The generated [`distilled-telegram` API reference](./packages/distilled-telegram/API.md)
+indexes all 185 methods and identifies the exact pinned Telegram Bot API
+version.
+
 ## Ownership and lifecycle
 
 Stable Alchemy resource types cover Profile, Command Sets, Webhook, Menu Button,
@@ -145,8 +158,11 @@ Telegram has no operation that clears the irreducible default Bot name. Removing
 or destroying that declaration leaves its last value in place; localized name
 overrides and all managed description fields are reset normally.
 
-Because Webhook secrets are persisted in Alchemy state, use an encrypted state
-backend for production.
+Bot tokens are redacted from display, but redaction is not encryption. Resource
+state can contain their underlying values, and Webhook secrets are deliberately
+persisted for stable deployments. Use an encrypted state backend such as
+`Cloudflare.state()` in production, restrict access to the state and encryption
+key, and never commit `.env`, plans, state exports, or credential-bearing logs.
 
 ## Development
 

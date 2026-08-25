@@ -18,5 +18,6 @@ Telegram envelopes become typed errors, tokens are redacted from failures, and
 arbitrary operations are not retried automatically. `Telegram.Files` provides
 portable upload constructors.
 
-See the [workspace README](../../README.md) for the provider, generation model,
-and lifecycle guarantees.
+See the generated [API reference](./API.md) for all Telegram Bot API 10.3
+methods. The [workspace README](../../README.md) documents the provider,
+generation model, and lifecycle guarantees.

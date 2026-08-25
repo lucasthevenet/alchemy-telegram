@@ -4,7 +4,8 @@
   "private": true,
   "workspaces": {
     "packages": [
-      "packages/*"
+      "packages/*",
+      "examples/*"
     ],
     "catalogs": {
       "build": {
@@ -25,7 +26,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -p packages/distilled-telegram/tsconfig.handwritten.json && tsc -p packages/distilled-telegram/tsconfig.scripts.json && tsc -b",
+    "typecheck": "tsc -p packages/distilled-telegram/tsconfig.handwritten.json && tsc -p packages/distilled-telegram/tsconfig.scripts.json && tsc -b && tsc -p examples/cloudflare-worker/tsconfig.json",
     "typecheck:provider": "tsc -p packages/alchemy-telegram/tsconfig.json --noEmit",
     "generate": "bun run --cwd packages/distilled-telegram generate",
     "generate:check": "bun run --cwd packages/distilled-telegram generate:check",

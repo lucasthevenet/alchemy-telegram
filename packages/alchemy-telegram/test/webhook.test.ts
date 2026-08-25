@@ -42,7 +42,7 @@ const invoke = async (
 };
 
 describe("Webhook handler", () => {
-  test("resolves the two-stage accessor used by Cloudflare.Worker.URL", async () => {
+  test("resolves a two-stage deferred origin", async () => {
     const origin = await Effect.runPromise(
       resolveOrigin(
         Effect.succeed(Effect.succeed("https://bot.example.com")) as never,

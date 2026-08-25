@@ -5,6 +5,7 @@ const root = `${import.meta.dir}/..`;
 const generated = [
   ".generated-ir/*.json",
   ".generated-specs/*.json",
+  "API.md",
   "src/services/*.ts",
 ] as const;
 

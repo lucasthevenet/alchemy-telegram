@@ -108,27 +108,27 @@ type SpecializedHandler =
       readonly key: string;
       readonly command: string;
       readonly options: RegisteredCommandOptions;
-      readonly handler: Handler<any>;
+      readonly handler: Handler<any, any, any>;
     }
   | {
       readonly kind: "hears";
       readonly key: string;
       readonly pattern: string | RegExp;
-      readonly handler: Handler;
+      readonly handler: Handler<unknown, any, any>;
     }
   | {
       readonly kind: "callback_query";
       readonly key: string;
       readonly pattern: string | RegExp;
       readonly options: MatchOptions;
-      readonly handler: Handler;
+      readonly handler: Handler<unknown, any, any>;
     };
 
 type FallbackHandler = {
   readonly kind: "on";
   readonly key: string;
   readonly event: keyof Update | "*";
-  readonly handler: Handler;
+  readonly handler: Handler<unknown, any, any>;
 };
 
 export interface CommandDeclaration {
@@ -165,10 +165,14 @@ const register = (
     append(state);
   });
 
-export const Command = <S extends Schema.Top | undefined = undefined>(
+export const Command = <
+  S extends Schema.Top | undefined = undefined,
+  E = unknown,
+  R = never,
+>(
   command: string,
   options: CommandOptions<S>,
-  handler: Handler<S extends Schema.Top ? Schema.Schema.Type<S> : string>,
+  handler: Handler<S extends Schema.Top ? Schema.Schema.Type<S> : string, E, R>,
 ): Effect.Effect<void, never, Builder> => {
   const normalized = command.replace(/^\//, "").toLowerCase();
   return register(`command:${normalized}`, (state) => {
@@ -183,9 +187,9 @@ export const Command = <S extends Schema.Top | undefined = undefined>(
   });
 };
 
-export const Hears = (
+export const Hears = <E, R>(
   pattern: string | RegExp,
-  handler: Handler,
+  handler: Handler<unknown, E, R>,
 ): Effect.Effect<void, never, Builder> =>
   register(`hears:${patternKey(pattern)}`, (state) => {
     state.specialized.push({
@@ -196,10 +200,10 @@ export const Hears = (
     });
   });
 
-export const CallbackQuery = (
+export const CallbackQuery = <E, R>(
   pattern: string | RegExp,
-  options: MatchOptions | Handler,
-  handler?: Handler,
+  options: MatchOptions | Handler<unknown, E, R>,
+  handler?: Handler<unknown, E, R>,
 ): Effect.Effect<void, never, Builder> => {
   const actualOptions = typeof options === "function" ? {} : options;
   const actualHandler = typeof options === "function" ? options : handler!;
@@ -214,9 +218,9 @@ export const CallbackQuery = (
   });
 };
 
-export const On = (
+export const On = <E, R>(
   event: keyof Update | "*",
-  handler: Handler,
+  handler: Handler<unknown, E, R>,
 ): Effect.Effect<void, never, Builder> =>
   register(`on:${String(event)}`, (state) => {
     state.fallback.push({

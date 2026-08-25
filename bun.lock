@@ -12,12 +12,25 @@
         "typescript": "catalog:build",
       },
     },
+    "examples/cloudflare-worker": {
+      "name": "@alchemy-telegram/example-cloudflare-worker",
+      "version": "0.0.0",
+      "dependencies": {
+        "alchemy": "2.0.0-beta.74",
+        "alchemy-telegram": "workspace:*",
+        "effect": "catalog:effect",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:tooling",
+        "typescript": "catalog:build",
+      },
+    },
     "packages/alchemy-telegram": {
       "name": "alchemy-telegram",
       "version": "0.1.0",
       "dependencies": {
         "@distilled.cloud/core": "1.0.0-rc.6",
-        "distilled-telegram": "workspace:*",
+        "distilled-telegram": "0.1.0",
       },
       "devDependencies": {
         "@effect/platform-bun": "catalog:effect",
@@ -65,6 +78,8 @@
   },
   "packages": {
     "@alcalzone/ansi-tokenize": ["@alcalzone/ansi-tokenize@0.2.5", "", { "dependencies": { "ansi-styles": "^6.2.1", "is-fullwidth-code-point": "^5.0.0" } }, "sha512-3NX/MpTdroi0aKz134A6RC2Gb2iXVECN4QaAXnvCIxxIm3C3AVB1mkUe8NaaiyvOpDfsrqWhYtj+Q6a62RrTsw=="],
+
+    "@alchemy-telegram/example-cloudflare-worker": ["@alchemy-telegram/example-cloudflare-worker@workspace:examples/cloudflare-worker"],
 
     "@alchemy.run/cloudflare-runtime": ["@alchemy.run/cloudflare-runtime@2.0.0-beta.74", "", { "dependencies": { "@alchemy.run/node-utils": "2.0.0-beta.74", "@cloudflare/unenv-preset": "^2.16.0", "@puppeteer/browsers": "^3.2.0", "capnp-es": "^0.0.14", "magic-string": "^0.30.21", "sharp": "^0.35.3", "unenv": "^2.0.0-rc.24", "workerd": "1.20260704.1", "yauzl": "^3.4.0" }, "peerDependencies": { "@distilled.cloud/cloudflare": "1.0.0-rc.6", "@effect/platform-bun": ">=4.0.0-rc.110 || >=4.0.0", "@effect/platform-node": ">=4.0.0-rc.110 || >=4.0.0", "effect": ">=4.0.0-rc.110 || >=4.0.0", "rolldown": "1.1.5", "vite": "^7.0.0 || ^8.0.0" }, "optionalPeers": ["@effect/platform-bun", "@effect/platform-node", "rolldown", "vite"] }, "sha512-P4eICKlw1TgnY6QjM3mztIuZcKXPdT4MmbatxWvzSp7ecueWcts9vnXn21dC0KR/vtRBRdopyuEbhmQ1CB0TfQ=="],
 
