@@ -1,29 +1,34 @@
 #!/usr/bin/env bun
 /** Generate the public method index from the normalized Telegram schema. */
+import * as Schema from "effect/Schema";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-type TelegramSchema = {
-  readonly version: {
-    readonly major: number;
-    readonly minor: number;
-    readonly release_date: {
-      readonly year: number;
-      readonly month: number;
-      readonly day: number;
-    };
-  };
-  readonly methods: readonly {
-    readonly name: string;
-    readonly anchor: string;
-  }[];
-  readonly objects: readonly { readonly name: string }[];
-};
+const TelegramSchema = Schema.Struct({
+  version: Schema.Struct({
+    major: Schema.Number,
+    minor: Schema.Number,
+    release_date: Schema.Struct({
+      year: Schema.Number,
+      month: Schema.Number,
+      day: Schema.Number,
+    }),
+  }),
+  methods: Schema.Array(
+    Schema.Struct({
+      name: Schema.String,
+      anchor: Schema.String,
+    }),
+  ),
+  objects: Schema.Array(Schema.Struct({ name: Schema.String })),
+});
 
 const root = resolve(import.meta.dir, "..");
-const schema = JSON.parse(
-  await readFile(resolve(root, ".generated-ir/telegram.json"), "utf8"),
-) as TelegramSchema;
+const schema = Schema.decodeUnknownSync(TelegramSchema)(
+  JSON.parse(
+    await readFile(resolve(root, ".generated-ir/telegram.json"), "utf8"),
+  ),
+);
 const version = `${schema.version.major}.${schema.version.minor}`;
 if (version !== "10.3") {
   throw new Error(`Expected Telegram Bot API 10.3, got ${version}`);

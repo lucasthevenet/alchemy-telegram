@@ -9,8 +9,9 @@ import {
   BotEventSource,
   consumeEvents,
   defaultEventPath,
-  makeWebhookHandler,
+  webhookHandler,
 } from "../src/events.ts";
+import * as Telegram from "distilled-telegram";
 
 const secret = Redacted.make("webhook-secret");
 
@@ -19,7 +20,7 @@ const app = (dispatch: BotApplication["dispatch"]): BotApplication => ({
   options: { token: "1:secret" },
   token: Redacted.make("1:secret"),
   commands: [],
-  api: {} as never,
+  api: Telegram,
   identity: Effect.die("not used"),
   dispatch,
   handle: dispatch,
@@ -35,18 +36,19 @@ const invoke = async (
   > = Effect.succeed(secret),
   method = "POST",
 ) => {
+  const headers = new Headers({ "content-type": "application/json" });
+  if (supplied) {
+    headers.set("x-telegram-bot-api-secret-token", supplied);
+  }
+  const init: RequestInit = { method, headers };
+  if (method !== "GET" && method !== "HEAD") {
+    init.body = body;
+  }
   const request = HttpServerRequest.fromWeb(
-    new Request("https://example.test/webhook", {
-      method,
-      headers: {
-        "content-type": "application/json",
-        ...(supplied ? { "x-telegram-bot-api-secret-token": supplied } : {}),
-      },
-      ...(method === "GET" || method === "HEAD" ? {} : { body }),
-    }),
+    new Request("https://example.test/webhook", init),
   );
   const result = await Effect.runPromise(
-    makeWebhookHandler(application, expected, Effect.succeed(local))(request),
+    webhookHandler(application, expected, Effect.succeed(local))(request),
   );
   return HttpServerResponse.toWeb(result);
 };

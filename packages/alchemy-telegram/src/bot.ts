@@ -2,6 +2,7 @@ import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
@@ -148,7 +149,7 @@ class Builder extends Context.Service<Builder, BuilderState>()(
 ) {}
 
 const patternKey = (pattern: string | RegExp): string =>
-  typeof pattern === "string"
+  Predicate.isString(pattern)
     ? `string:${pattern}`
     : `regexp:${pattern.source}/${pattern.flags}`;
 
@@ -205,8 +206,12 @@ export const CallbackQuery = <E, R>(
   options: MatchOptions | Handler<unknown, E, R>,
   handler?: Handler<unknown, E, R>,
 ): Effect.Effect<void, never, Builder> => {
-  const actualOptions = typeof options === "function" ? {} : options;
-  const actualHandler = typeof options === "function" ? options : handler!;
+  const handlerOnly = Predicate.isFunction(options);
+  const actualOptions = handlerOnly ? {} : options;
+  const actualHandler = handlerOnly ? options : handler;
+  if (!actualHandler) {
+    return Effect.die(new Error("Telegram.CallbackQuery requires a handler"));
+  }
   return register(`callback:${patternKey(pattern)}`, (state) => {
     state.specialized.push({
       kind: "callback_query",
@@ -235,9 +240,9 @@ const matches = (
   pattern: string | RegExp,
   value: string,
 ): RegExpMatchArray | undefined => {
-  if (typeof pattern === "string") {
+  if (Predicate.isString(pattern)) {
     return value === pattern
-      ? ([value] as unknown as RegExpMatchArray)
+      ? (value.match(/^[\s\S]*$/) ?? undefined)
       : undefined;
   }
   pattern.lastIndex = 0;
@@ -261,10 +266,10 @@ const commandOf = (
   return { name, args: message.text.slice(entity.length).trim() };
 };
 
-const updateEvent = (update: Update): keyof Update | undefined =>
-  (Object.keys(update) as (keyof Update)[]).find(
-    (key) => key !== "update_id" && update[key] !== undefined,
-  );
+const updateEvent = (update: Update): string | undefined =>
+  Object.entries(update).find(
+    ([key, value]) => key !== "update_id" && value !== undefined,
+  )?.[0];
 
 const stableId = (value: string): string => {
   let hash = 0x811c9dc5;
@@ -274,6 +279,107 @@ const stableId = (value: string): string => {
   }
   return (hash >>> 0).toString(36);
 };
+
+const profileValue = (profile: LocalizedProfile) => ({
+  name: profile.name,
+  description: profile.description,
+  short_description: profile.shortDescription,
+});
+
+const declareProfile = Effect.fn(function* (
+  name: string,
+  options: NonNullable<BotOptions["profile"]>,
+  token: Redacted.Redacted<string>,
+  apiOrigin: string | undefined,
+) {
+  yield* Profile(`${name}Profile`, {
+    token,
+    apiOrigin,
+    default: options.default ? profileValue(options.default) : undefined,
+    locales: options.locales
+      ? Object.fromEntries(
+          Object.entries(options.locales).map(([locale, profile]) => [
+            locale,
+            profileValue(profile),
+          ]),
+        )
+      : undefined,
+  });
+});
+
+const declareCommandSets = Effect.fn(function* (
+  name: string,
+  declarations: readonly CommandDeclaration[],
+  token: Redacted.Redacted<string>,
+  apiOrigin: string | undefined,
+) {
+  const scoped = new Map<
+    string,
+    {
+      readonly scope: BotCommandScope;
+      readonly commands: CommandDeclaration[];
+    }
+  >();
+  for (const declaration of declarations) {
+    for (const scope of declaration.options.scopes ?? [{ type: "default" }]) {
+      const key = JSON.stringify(scope);
+      const group = scoped.get(key) ?? { scope, commands: [] };
+      group.commands.push(declaration);
+      scoped.set(key, group);
+    }
+  }
+  for (const [scopeKey, group] of scoped) {
+    const locales = new Set<string>([""]);
+    for (const declaration of group.commands) {
+      for (const locale of Object.keys(declaration.options.locales ?? {})) {
+        locales.add(locale);
+      }
+    }
+    for (const locale of locales) {
+      const commands = group.commands.map((declaration) => ({
+        command: declaration.command,
+        description:
+          (locale ? declaration.options.locales?.[locale] : undefined) ??
+          declaration.options.description,
+      }));
+      const key = `${scopeKey}:${locale}`;
+      yield* CommandSet(`${name}Commands${stableId(key)}`, {
+        token,
+        apiOrigin,
+        commands,
+        scope: group.scope,
+        language_code: locale || undefined,
+      });
+    }
+  }
+});
+
+const declareBotResources = Effect.fn(function* (
+  name: string,
+  options: BotOptions,
+  token: Redacted.Redacted<string>,
+  commands: readonly CommandDeclaration[],
+) {
+  if (options.profile) {
+    yield* declareProfile(name, options.profile, token, options.apiOrigin);
+  }
+  yield* declareCommandSets(name, commands, token, options.apiOrigin);
+  if (options.menuButton) {
+    yield* MenuButtonConfig(`${name}MenuButton`, {
+      token,
+      apiOrigin: options.apiOrigin,
+      menu_button: options.menuButton,
+    });
+  }
+  if (options.defaultAdministratorRights) {
+    yield* DefaultAdministratorRightsConfig(`${name}AdministratorRights`, {
+      token,
+      apiOrigin: options.apiOrigin,
+      groups: options.defaultAdministratorRights.groups,
+      channels: options.defaultAdministratorRights.channels,
+    });
+  }
+});
 
 export interface BotApplication {
   readonly name: string;
@@ -286,12 +392,22 @@ export interface BotApplication {
   readonly handle: (update: Update) => Effect.Effect<void, unknown, unknown>;
 }
 
-const makeContext = (
+type BotResourceProviders =
+  | typeof Profile.Provider
+  | typeof CommandSet.Provider
+  | typeof MenuButtonConfig.Provider
+  | typeof DefaultAdministratorRightsConfig.Provider;
+
+type BotRequirements<R, ManageResources extends boolean | undefined> =
+  | Exclude<R, Builder>
+  | (ManageResources extends false ? never : BotResourceProviders);
+
+const makeContext = <A>(
   update: Update,
-  args: unknown = undefined,
+  args: A,
   match?: RegExpMatchArray,
   callbackState?: { answered: boolean },
-): HandlerContext<any> => {
+): HandlerContext<A> => {
   const message = messageOf(update);
   return {
     update,
@@ -335,13 +451,24 @@ const makeContext = (
   };
 };
 
-export const Bot = <E, R>(
+export const Bot = <
+  E,
+  R,
+  ManageResources extends boolean | undefined = undefined,
+>(
   name: string,
   options: BotOptions,
   declarations: Effect.Effect<unknown, E, Builder | R>,
   /** @internal Used by the runtime unit tests; applications should omit this. */
-  internal?: { readonly manageResources?: boolean },
-): Effect.Effect<BotApplication, E | Config.ConfigError, R> =>
+  internal?: { readonly manageResources?: ManageResources },
+): Effect.Effect<
+  BotApplication,
+  E | Config.ConfigError,
+  BotRequirements<R, ManageResources>
+> =>
+  // SAFETY: providing Builder removes it from the declaration environment;
+  // the runtime branch registers resources exactly when the conditional
+  // BotRequirements type includes their provider services.
   Effect.gen(function* () {
     const manageResources =
       internal?.manageResources !== false && !globalThis.__ALCHEMY_RUNTIME__;
@@ -357,92 +484,15 @@ export const Bot = <E, R>(
       commands: [],
     };
     yield* declarations.pipe(Effect.provideService(Builder, state));
-    if (manageResources && options.profile) {
-      const convertProfile = (profile: LocalizedProfile | undefined) =>
-        profile
-          ? {
-              name: profile.name,
-              description: profile.description,
-              short_description: profile.shortDescription,
-            }
-          : undefined;
-      yield* Profile(`${name}Profile`, {
-        token,
-        apiOrigin: options.apiOrigin,
-        default: convertProfile(options.profile.default),
-        locales: options.profile.locales
-          ? Object.fromEntries(
-              Object.entries(options.profile.locales).map(
-                ([locale, profile]) => [locale, convertProfile(profile)!],
-              ),
-            )
-          : undefined,
-      });
-    }
-    const scoped = new Map<
-      string,
-      {
-        readonly scope: BotCommandScope;
-        readonly commands: CommandDeclaration[];
-      }
-    >();
-    for (const declaration of manageResources ? state.commands : []) {
-      for (const scope of declaration.options.scopes ?? [{ type: "default" }]) {
-        const key = JSON.stringify(scope);
-        const group = scoped.get(key) ?? { scope, commands: [] };
-        group.commands.push(declaration);
-        scoped.set(key, group);
-      }
-    }
-    for (const [scopeKey, group] of scoped) {
-      const locales = new Set<string>([""]);
-      for (const declaration of group.commands) {
-        for (const locale of Object.keys(declaration.options.locales ?? {})) {
-          locales.add(locale);
-        }
-      }
-      for (const locale of locales) {
-        const commands = group.commands.map((declaration) => ({
-          command: declaration.command,
-          description:
-            (locale ? declaration.options.locales?.[locale] : undefined) ??
-            declaration.options.description,
-        }));
-        const key = `${scopeKey}:${locale}`;
-        yield* CommandSet(`${name}Commands${stableId(key)}`, {
-          token,
-          apiOrigin: options.apiOrigin,
-          commands,
-          scope: group.scope,
-          language_code: locale || undefined,
-        });
-      }
-    }
-    if (manageResources && options.menuButton) {
-      yield* MenuButtonConfig(`${name}MenuButton`, {
-        token,
-        apiOrigin: options.apiOrigin,
-        menu_button: options.menuButton,
-      });
-    }
-    if (manageResources && options.defaultAdministratorRights) {
-      yield* DefaultAdministratorRightsConfig(`${name}AdministratorRights`, {
-        token,
-        apiOrigin: options.apiOrigin,
-        groups: options.defaultAdministratorRights.groups,
-        channels: options.defaultAdministratorRights.channels,
-      });
+    if (manageResources) {
+      yield* declareBotResources(name, options, token, state.commands);
     }
     const runtime = Layer.mergeAll(
       Telegram.credentials({ token, apiOrigin: options.apiOrigin }),
       FetchHttpClient.layer,
     );
     const runHandler = (effect: Effect.Effect<unknown, unknown, unknown>) =>
-      effect.pipe(Effect.provide(runtime)) as Effect.Effect<
-        unknown,
-        unknown,
-        unknown
-      >;
+      effect.pipe(Effect.provide(runtime));
     const dispatch = (update: Update): Effect.Effect<void, unknown, unknown> =>
       Effect.gen(function* () {
         const message = messageOf(update);
@@ -456,11 +506,19 @@ export const Bot = <E, R>(
                 declaration.options.args,
               )(command.args).pipe(Effect.result);
               if (parsed._tag === "Failure") {
+                const invalidArguments = declaration.options.onInvalidArgs;
+                if (!invalidArguments) {
+                  return yield* Effect.die(
+                    new Error(
+                      `Telegram command ${declaration.command} has an argument schema without an invalid-arguments handler`,
+                    ),
+                  );
+                }
                 yield* runHandler(
-                  declaration.options.onInvalidArgs!(
-                    makeContext(update),
+                  invalidArguments(
+                    makeContext(update, undefined),
                     parsed.failure,
-                  ) as Effect.Effect<unknown, unknown, unknown>,
+                  ),
                 );
                 return;
               }
@@ -504,12 +562,10 @@ export const Bot = <E, R>(
             declaration.event === event || declaration.event === "*",
         );
         if (fallback) {
-          yield* runHandler(fallback.handler(makeContext(update)));
+          yield* runHandler(fallback.handler(makeContext(update, undefined)));
         }
       });
-    const identity = Telegram.getMe({}).pipe(
-      Effect.provide(runtime),
-    ) as Effect.Effect<Telegram.User, Telegram.GetMeError>;
+    const identity = Telegram.getMe({}).pipe(Effect.provide(runtime));
     return {
       name,
       options,
@@ -520,4 +576,8 @@ export const Bot = <E, R>(
       dispatch,
       handle: dispatch,
     };
-  }) as Effect.Effect<BotApplication, E | Config.ConfigError, R>;
+  }) as Effect.Effect<
+    BotApplication,
+    E | Config.ConfigError,
+    BotRequirements<R, ManageResources>
+  >;

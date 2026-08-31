@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
 import {
   Files,
   TelegramApiError,
   TelegramRequestError,
   TelegramTransportError,
+  type TelegramOpContext,
   credentials,
   getMe,
   sendMediaGroup,
@@ -20,13 +22,22 @@ afterEach(() => {
   server = undefined;
 });
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>, origin: string) =>
+const run = <A, E>(
+  effect: Effect.Effect<A, E, TelegramOpContext>,
+  origin: string,
+) =>
   Effect.runPromise(
     effect.pipe(
       Effect.provide(credentials({ token, apiOrigin: origin })),
       Effect.provide(FetchHttpClient.layer),
-    ) as Effect.Effect<A, E>,
+    ),
   );
+
+const MediaReferences = Schema.Array(Schema.Struct({ media: Schema.String }));
+
+const parseMediaReferences = Schema.decodeUnknownSync(
+  Schema.fromJsonString(MediaReferences),
+);
 
 describe("Telegram protocol", () => {
   test("unwraps a successful envelope and tolerates new response fields", async () => {
@@ -51,6 +62,23 @@ describe("Telegram protocol", () => {
     expect(result.first_name).toBe("Alchemy");
   });
 
+  test("keeps the context-capturing operation form", async () => {
+    server = Bun.serve({
+      port: 0,
+      fetch: () =>
+        Response.json({
+          ok: true,
+          result: { id: 42, is_bot: true, first_name: "Alchemy" },
+        }),
+    });
+    const program = Effect.gen(function* () {
+      const callGetMe = yield* getMe;
+      return yield* callGetMe({});
+    });
+    const result = await run(program, server.url.origin);
+    expect(result.id).toBe(42);
+  });
+
   test("surfaces Telegram's API envelope as a typed error", async () => {
     server = Bun.serve({
       port: 0,
@@ -64,7 +92,10 @@ describe("Telegram protocol", () => {
     });
     const error = await run(Effect.flip(getMe({})), server.url.origin);
     expect(error).toBeInstanceOf(TelegramApiError);
-    expect((error as TelegramApiError).error_code).toBe(429);
+    if (!(error instanceof TelegramApiError)) {
+      throw new Error("expected TelegramApiError");
+    }
+    expect(error.error_code).toBe(429);
   });
 
   test("rejects an invalid request before hitting the network", async () => {
@@ -75,7 +106,7 @@ describe("Telegram protocol", () => {
       },
     });
     const error = await run(
-      Effect.flip(getMe({ unexpected: true } as never)),
+      Effect.flip(getMe({ unexpected: true })),
       server.url.origin,
     );
     expect(error).toBeInstanceOf(TelegramRequestError);
@@ -99,9 +130,7 @@ describe("Telegram protocol", () => {
       port: 0,
       fetch: async (request) => {
         const form = await request.formData();
-        const media = JSON.parse(String(form.get("media"))) as readonly {
-          readonly media: string;
-        }[];
+        const media = parseMediaReferences(String(form.get("media")));
         expect(media.map((item) => item.media)).toEqual([
           "attach://file_0",
           "attach://file_1",

@@ -35,6 +35,12 @@
   ],
   "rules": {
     "complexity": "error",
+    "eslint/no-underscore-dangle": [
+      "warn",
+      {
+        "allow": ["_tag", "__ALCHEMY_RUNTIME__"]
+      }
+    ],
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
     "anti-slop/no-known-value-widening": "error",

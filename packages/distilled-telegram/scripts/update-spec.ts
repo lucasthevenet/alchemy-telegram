@@ -5,6 +5,7 @@
  * This is the only generation command that talks to the network. A normal
  * `bun run generate` reads the committed snapshots under `spec/`.
  */
+import * as Schema from "effect/Schema";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { format } from "oxfmt";
@@ -18,6 +19,20 @@ const sources = {
   "spec/oracles/paulsonoflars-api.json":
     "https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/master/api.json",
 } as const;
+
+const ProvenanceSchema = Schema.Struct({
+  parser: Schema.optional(Schema.String),
+  sources: Schema.optional(
+    Schema.Record(
+      Schema.String,
+      Schema.Struct({
+        url: Schema.String,
+        sha256: Schema.String,
+        bytes: Schema.Number,
+      }),
+    ),
+  ),
+});
 
 const sha256 = (value: Uint8Array): string =>
   new Bun.CryptoHasher("sha256").update(value).digest("hex");
@@ -74,12 +89,8 @@ for (const [relativePath, url] of Object.entries(sources)) {
 
 const provenancePath = resolve(root, "spec/provenance.json");
 const previous = await readFile(provenancePath, "utf8")
-  .then(
-    (value) =>
-      JSON.parse(value) as {
-        readonly parser?: string;
-        readonly sources?: typeof provenance;
-      },
+  .then((value) =>
+    Schema.decodeUnknownSync(ProvenanceSchema)(JSON.parse(value)),
   )
   .catch(() => undefined);
 const parser = "@gramio/schema-parser@1.2.0";

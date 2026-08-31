@@ -1,6 +1,7 @@
 import { expect } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
 import { Sync, type Input } from "alchemy";
 import * as Output from "alchemy/Output";
 import * as AlchemyTest from "alchemy/Test/Bun";
@@ -11,9 +12,16 @@ interface WebhookState {
   allowed_updates: readonly string[] | undefined;
 }
 
+const SetWebhookBody = Schema.Struct({
+  url: Schema.String,
+  secret_token: Schema.optional(Schema.String),
+  allowed_updates: Schema.optional(Schema.Array(Schema.String)),
+  drop_pending_updates: Schema.optional(Schema.Boolean),
+});
+
 interface ApiCall {
   readonly method: string;
-  readonly body: Record<string, unknown>;
+  readonly body?: typeof SetWebhookBody.Type;
 }
 
 const makeTelegramApi = () => {
@@ -23,16 +31,16 @@ const makeTelegramApi = () => {
     port: 0,
     fetch: async (request) => {
       const method = new URL(request.url).pathname.split("/").at(-1)!;
-      const body = (await request.json()) as Record<string, unknown>;
-      calls.push({ method, body });
 
       if (method === "getMe") {
+        calls.push({ method });
         return Response.json({
           ok: true,
           result: { id: 42, is_bot: true, first_name: "Provider Test Bot" },
         });
       }
       if (method === "getWebhookInfo") {
+        calls.push({ method });
         return Response.json({
           ok: true,
           result: {
@@ -44,13 +52,16 @@ const makeTelegramApi = () => {
         });
       }
       if (method === "setWebhook") {
-        webhook.url = body.url as string;
-        webhook.allowed_updates = body.allowed_updates as
-          | readonly string[]
-          | undefined;
+        const body = Schema.decodeUnknownSync(SetWebhookBody)(
+          await request.json(),
+        );
+        calls.push({ method, body });
+        webhook.url = body.url;
+        webhook.allowed_updates = body.allowed_updates;
         return Response.json({ ok: true, result: true });
       }
       if (method === "deleteWebhook") {
+        calls.push({ method });
         webhook.url = "";
         webhook.allowed_updates = undefined;
         return Response.json({ ok: true, result: true });
@@ -141,15 +152,15 @@ alchemy.test.provider(
             allowed_updates: secondUpdates,
           });
 
-          const registrations = calls.filter(
-            ({ method }) => method === "setWebhook",
+          const registrations = calls.flatMap(({ body }) =>
+            body ? [body] : [],
           );
-          expect(registrations.map(({ body }) => body.url)).toEqual([
+          expect(registrations.map(({ url }) => url)).toEqual([
             firstUrl,
             secondUrl,
             secondUrl,
           ]);
-          expect(registrations.at(-1)?.body).toMatchObject({
+          expect(registrations.at(-1)).toMatchObject({
             url: secondUrl,
             secret_token: "provider-test-secret",
             allowed_updates: secondUpdates,

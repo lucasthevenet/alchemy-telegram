@@ -1,6 +1,7 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
 import {
@@ -155,13 +156,18 @@ const runtime = (props: AuthProps) =>
     FetchHttpClient.layer,
   );
 
-const call = <A, E, R>(props: AuthProps, effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(Effect.provide(runtime(props))) as Effect.Effect<A, E, never>;
+const call = <A, E>(
+  props: AuthProps,
+  effect: Effect.Effect<A, E, Telegram.TelegramOpContext>,
+): Effect.Effect<A, E> => effect.pipe(Effect.provide(runtime(props)));
 
 const identify = (
   props: AuthProps,
   expected?: number,
-): Effect.Effect<Telegram.User, Telegram.TelegramOpError> =>
+): Effect.Effect<
+  Telegram.User,
+  Telegram.TelegramOpError | BotIdentityMismatch
+> =>
   Effect.gen(function* () {
     const user = yield* call(props, Telegram.getMe({}));
     if (expected !== undefined && expected !== user.id) {
@@ -176,15 +182,20 @@ const identify = (
       );
     }
     return user;
-  }) as Effect.Effect<Telegram.User, Telegram.TelegramOpError>;
+  });
 
-const same = (left: unknown, right: unknown): boolean =>
+const same = <A>(left: A, right: A): boolean =>
   JSON.stringify(left) === JSON.stringify(right);
 
-const profileMap = (props: ProfileProps): Record<string, ProfileValue> => ({
-  ...(props.default ? { "": props.default } : {}),
-  ...props.locales,
-});
+const profileMap = (props: ProfileProps) => {
+  const profile = { ...props.locales };
+  if (props.default) profile[""] = props.default;
+  return profile;
+};
+
+type MutableProfileValue = {
+  -readonly [Key in keyof ProfileValue]: ProfileValue[Key];
+};
 
 const observeProfile = (props: ProfileProps, languages: readonly string[]) =>
   Effect.gen(function* () {
@@ -196,18 +207,36 @@ const observeProfile = (props: ProfileProps, languages: readonly string[]) =>
         call(props, Telegram.getMyDescription(request)),
         call(props, Telegram.getMyShortDescription(request)),
       ]);
-      result[language_code] = {
-        ...(name.name ? { name: name.name } : {}),
-        ...(description.description
-          ? { description: description.description }
-          : {}),
-        ...(short.short_description
-          ? { short_description: short.short_description }
-          : {}),
-      };
+      const profile: MutableProfileValue = {};
+      if (name.name) profile.name = name.name;
+      if (description.description)
+        profile.description = description.description;
+      if (short.short_description) {
+        profile.short_description = short.short_description;
+      }
+      result[language_code] = profile;
     }
     return result;
   });
+
+const reconcileProfileName = Effect.fn(function* (
+  props: ProfileProps,
+  language_code: string,
+  desired: ProfileValue,
+  previous: ProfileValue,
+  observed: ProfileValue,
+) {
+  const language = language_code ? { language_code } : {};
+  if (desired.name !== undefined && desired.name !== observed.name) {
+    yield* call(props, Telegram.setMyName({ ...language, name: desired.name }));
+  } else if (
+    language_code &&
+    desired.name === undefined &&
+    previous.name !== undefined
+  ) {
+    yield* call(props, Telegram.setMyName({ ...language, name: "" }));
+  }
+});
 
 export const ProfileProvider = () =>
   Provider.succeed(Profile, {
@@ -234,18 +263,7 @@ export const ProfileProvider = () =>
         const old = previous[language_code] ?? {};
         const live = observed[language_code] ?? {};
         const language = language_code ? { language_code } : {};
-        if (locale.name !== undefined && locale.name !== live.name) {
-          yield* call(
-            news,
-            Telegram.setMyName({ ...language, name: locale.name }),
-          );
-        } else if (
-          language_code &&
-          locale.name === undefined &&
-          old.name !== undefined
-        ) {
-          yield* call(news, Telegram.setMyName({ ...language, name: "" }));
-        }
+        yield* reconcileProfileName(news, language_code, locale, old, live);
         if (
           locale.description !== undefined &&
           locale.description !== live.description
@@ -386,12 +404,19 @@ const isLocalUrl = (url: string): boolean => {
   );
 };
 
+const resolvedWebhookUrl = (url: Input<string>): string => {
+  if (Predicate.isString(url)) return url;
+  throw new TypeError(
+    "Telegram webhook URL reached its provider before Alchemy resolved it",
+  );
+};
+
 export const WebhookProvider = () =>
   Provider.succeed(Webhook, {
     stables: ["bot_id"],
     read: Effect.fn(function* ({ olds, output }) {
       const user = yield* identify(olds, output?.bot_id);
-      const desiredUrl = olds.url as string;
+      const desiredUrl = resolvedWebhookUrl(olds.url);
       if (isLocalUrl(desiredUrl)) return output;
       const info = yield* call(olds, Telegram.getWebhookInfo({}));
       if (!info.url) return undefined;
@@ -404,7 +429,7 @@ export const WebhookProvider = () =>
     }),
     reconcile: Effect.fn(function* ({ news, output }) {
       const user = yield* identify(news, output?.bot_id);
-      const url = news.url as string;
+      const url = resolvedWebhookUrl(news.url);
       if (!isLocalUrl(url)) {
         yield* call(
           news,
@@ -426,7 +451,7 @@ export const WebhookProvider = () =>
     }),
     delete: Effect.fn(function* ({ olds, output }) {
       yield* identify(olds, output.bot_id);
-      const ownedUrl = olds.url as string;
+      const ownedUrl = resolvedWebhookUrl(olds.url);
       if (isLocalUrl(ownedUrl)) return;
       const observed = yield* call(olds, Telegram.getWebhookInfo({}));
       if (observed.url !== ownedUrl) return;

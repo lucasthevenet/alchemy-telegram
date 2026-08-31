@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
 import { Unowned } from "alchemy/AdoptPolicy";
 import {
   BotIdentityMismatch,
@@ -23,9 +24,24 @@ const lifecycleInput = {
   id: "Commands",
   fqn: "Commands",
   instanceId: "test",
-  session: {} as never,
+  session: {
+    emit: () => Effect.void,
+    done: () => Effect.void,
+    note: () => Effect.void,
+  },
   bindings: [],
 };
+
+const SetMyNameBody = Schema.Struct({
+  name: Schema.optional(Schema.String),
+});
+
+const SetWebhookBody = Schema.Struct({
+  url: Schema.String,
+  secret_token: Schema.optional(Schema.String),
+  allowed_updates: Schema.optional(Schema.Array(Schema.String)),
+  drop_pending_updates: Schema.optional(Schema.Boolean),
+});
 
 describe("Alchemy Telegram providers", () => {
   test("destroys a default profile without trying to clear its required name", async () => {
@@ -40,7 +56,9 @@ describe("Alchemy Telegram providers", () => {
           });
         }
         if (method === "setMyName") {
-          const body = (await request.json()) as { name?: string };
+          const body = Schema.decodeUnknownSync(SetMyNameBody)(
+            await request.json(),
+          );
           if (!body.name) {
             return Response.json({
               ok: false,
@@ -205,7 +223,7 @@ describe("Alchemy Telegram providers", () => {
   });
 
   test("reconciles the public Webhook resource", async () => {
-    let setWebhookBody: Record<string, unknown> | undefined;
+    let setWebhookBody: typeof SetWebhookBody.Type | undefined;
     server = Bun.serve({
       port: 0,
       fetch: async (request) => {
@@ -217,7 +235,9 @@ describe("Alchemy Telegram providers", () => {
           });
         }
         if (method === "setWebhook") {
-          setWebhookBody = (await request.json()) as Record<string, unknown>;
+          setWebhookBody = Schema.decodeUnknownSync(SetWebhookBody)(
+            await request.json(),
+          );
         }
         return Response.json({ ok: true, result: true });
       },

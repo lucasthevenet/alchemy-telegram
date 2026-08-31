@@ -1,5 +1,5 @@
 import { Random } from "alchemy";
-import { isWorkerEvent, Worker } from "alchemy/Cloudflare";
+import { isWorkerEvent, Worker, type WorkerEvent } from "alchemy/Cloudflare";
 import * as Namespace from "alchemy/Namespace";
 import * as Output from "alchemy/Output";
 import { sanitizeKey } from "alchemy/RuntimeContext";
@@ -11,13 +11,13 @@ import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import {
   BotEventSource,
   eventPath,
-  makeWebhookHandler,
   type BotEventSourceService,
+  webhookHandler,
 } from "./events.ts";
 import { Webhook } from "./resources.ts";
 
 type WorkerListener<A = unknown, R = never> = (
-  event: unknown,
+  event: WorkerEvent,
 ) => Effect.Effect<A, never, R> | void;
 
 type WorkerRoutingContext = Pick<
@@ -25,7 +25,7 @@ type WorkerRoutingContext = Pick<
   "listen" | "serve"
 >;
 
-const requestPath = (request: Request): string | undefined => {
+const requestPath = (request: { readonly url: string }): string | undefined => {
   try {
     return new URL(request.url).pathname;
   } catch {
@@ -53,13 +53,15 @@ const excludeClaimedPathsFromDefaultFetch = (
         if (
           isWorkerEvent(event) &&
           event.type === "fetch" &&
-          paths.has(requestPath(event.input as unknown as Request) ?? "")
+          paths.has(requestPath(event.input) ?? "")
         ) {
           return undefined;
         }
         return listener(event);
       };
 
+    // SAFETY: `serve` registers a concrete Worker listener; this wrapper keeps
+    // both overloads while adding only a path predicate to that listener.
     runtime.listen = (<A, R>(listener: WorkerListener<A, R>) =>
       previousListen(filter(listener))) as typeof runtime.listen;
     try {
@@ -105,6 +107,8 @@ export const BotEventSourceLive = Layer.effect(
     const tokens = new Set<string>();
     excludeClaimedPathsFromDefaultFetch(ctx, paths);
 
+    // SAFETY: this function implements BotEventSourceService exactly; the cast
+    // hides Alchemy's plan-time providers after they are captured above.
     return Effect.fn(function* (application, options) {
       const path = eventPath(application, options);
       const token = Redacted.value(application.token);
@@ -157,17 +161,20 @@ export const BotEventSourceLive = Layer.effect(
 
       yield* ctx.listen((event) => {
         if (!isWorkerEvent(event) || event.type !== "fetch") return;
-        const request = event.input as unknown as Request;
-        const pathname = requestPath(request);
+        const pathname = requestPath(event.input);
         if (pathname !== path) return;
 
-        return makeWebhookHandler(
+        return webhookHandler(
           application,
           secret,
           local,
-        )(HttpServerRequest.fromWeb(request)).pipe(
-          Effect.map(HttpServerResponse.toWeb),
-        );
+        )(
+          HttpServerRequest.fromWeb(
+            // SAFETY: Cloudflare's Request and the web-standard Request are the
+            // same runtime object; their ambient TypeScript declarations differ.
+            event.input as never,
+          ),
+        ).pipe(Effect.map(HttpServerResponse.toWeb));
       });
     }) as BotEventSourceService;
   }),

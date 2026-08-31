@@ -4,6 +4,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -23,11 +24,12 @@ import {
   UnknownTelegramError,
   type DefaultErrors,
 } from "./errors.ts";
-import { httpSymbol, type HttpTrait } from "./traits.ts";
+import { httpSymbol } from "./traits.ts";
 import { Retry } from "./retry.ts";
 import {
   isInputFileLike,
   resolveInputFile,
+  type InputFileLike,
   type ResolvedFile,
 } from "./files.ts";
 
@@ -35,81 +37,115 @@ export type TelegramOpError = DefaultErrors | ConfigError;
 
 export type TelegramOpContext = Credentials | HttpClient.HttpClient;
 
-type Envelope = {
-  readonly ok: boolean;
-  readonly result?: unknown;
-  readonly error_code?: number;
-  readonly description?: string;
-  readonly parameters?: unknown;
-};
+const Envelope = Schema.Struct({
+  ok: Schema.Boolean,
+  result: Schema.optional(Schema.Unknown),
+  error_code: Schema.optional(Schema.Number),
+  description: Schema.optional(Schema.String),
+  parameters: Schema.optional(Schema.Unknown),
+});
+
+const EnvelopeFromJson = Schema.fromJsonString(Envelope);
+
+const TelegramHttpBinding = Schema.Struct({ uri: Schema.String });
+
+type MultipartPrimitive = string | number | boolean | null | undefined;
+
+interface MultipartArray extends ReadonlyArray<MultipartValue> {}
+
+interface MultipartObject {
+  readonly [key: string]: MultipartValue;
+}
+
+type MultipartValue =
+  | MultipartPrimitive
+  | InputFileLike
+  | MultipartArray
+  | MultipartObject;
+
+interface EncodedMultipartArray extends ReadonlyArray<EncodedMultipartValue> {}
+
+interface EncodedMultipartObject {
+  readonly [key: string]: EncodedMultipartValue;
+}
+
+type EncodedMultipartValue =
+  | MultipartPrimitive
+  | EncodedMultipartArray
+  | EncodedMultipartObject;
 
 const normalizeOrigin = (origin: string): string => origin.replace(/\/+$/, "");
 
-const parseEnvelope = (body: string): Envelope | undefined => {
-  try {
-    const parsed = JSON.parse(body) as unknown;
-    if (parsed === null || typeof parsed !== "object") return undefined;
-    const value = parsed as Record<string, unknown>;
-    if (typeof value.ok !== "boolean") return undefined;
-    return value as Envelope;
-  } catch {
-    return undefined;
-  }
-};
+const parseEnvelope = Schema.decodeUnknownOption(EnvelopeFromJson);
+
+const isMultipartArray = (value: MultipartValue): value is MultipartArray =>
+  Array.isArray(value);
+
+const isMultipartObject = (value: MultipartValue): value is MultipartObject =>
+  Predicate.isObject(value) && !isInputFileLike(value);
 
 const encodeMultipart = (
-  input: Record<string, unknown>,
+  input: MultipartObject,
 ): Effect.Effect<
   {
-    readonly body: Record<string, unknown>;
+    readonly body: EncodedMultipartObject;
     readonly files: readonly [string, ResolvedFile][];
   },
   unknown
 > => {
   const files: [string, ResolvedFile][] = [];
-  const visit = (value: unknown): Effect.Effect<unknown, unknown> =>
+  const visit = (
+    value: MultipartValue,
+  ): Effect.Effect<EncodedMultipartValue, unknown> =>
     Effect.gen(function* () {
       if (isInputFileLike(value)) {
         const name = `file_${files.length}`;
         files.push([name, yield* resolveInputFile(value)]);
         return `attach://${name}`;
       }
-      if (Array.isArray(value)) {
+      if (isMultipartArray(value)) {
         return yield* Effect.forEach(value, visit);
       }
-      if (value !== null && typeof value === "object") {
-        const entries = yield* Effect.forEach(
-          Object.entries(value as Record<string, unknown>).filter(
-            ([, item]) => item !== undefined,
-          ),
-          ([key, item]) =>
-            Effect.map(visit(item), (mapped) => [key, mapped] as const),
-        );
-        return Object.fromEntries(entries);
+      if (isMultipartObject(value)) {
+        return yield* visitObject(value);
       }
       return value;
     });
-  return Effect.map(visit(input), (body) => ({
-    body: body as Record<string, unknown>,
+
+  const visitObject = (
+    value: MultipartObject,
+  ): Effect.Effect<EncodedMultipartObject, unknown> =>
+    Effect.map(
+      Effect.forEach(
+        Object.entries(value).filter(([, item]) => item !== undefined),
+        ([key, item]) =>
+          Effect.map(visit(item), (mapped) => [key, mapped] as const),
+      ),
+      Object.fromEntries,
+    );
+
+  return Effect.map(visitObject(input), (body) => ({
+    body,
     files,
   }));
 };
 
 const makeRequest = (
-  input: Record<string, unknown>,
+  input: MultipartObject,
   inputAst: AST.AST,
   config: Config,
 ): Effect.Effect<HttpClientRequest.HttpClientRequest, unknown> =>
   Effect.gen(function* () {
-    const http = getAnn(inputAst, httpSymbol) as HttpTrait | undefined;
-    if (!http)
+    const http = Schema.decodeUnknownOption(TelegramHttpBinding)(
+      getAnn(inputAst, httpSymbol),
+    );
+    if (Option.isNone(http))
       return yield* Effect.die("Telegram operation is missing its HTTP trait");
     const token = Redacted.value(config.token);
-    const url = `${normalizeOrigin(config.apiOrigin)}/bot${token}${http.uri}`;
-    const wireInput = mapKeys(inputAst, input, "encode") as Record<
-      string,
-      unknown
-    >;
+    const url = `${normalizeOrigin(config.apiOrigin)}/bot${token}${http.value.uri}`;
+    // SAFETY: `input` passed its generated request schema, and `mapKeys` only
+    // renames keys. It preserves the recursive multipart value contract.
+    const wireInput = mapKeys(inputAst, input, "encode") as MultipartObject;
     const encoded = yield* encodeMultipart(wireInput);
     const request = HttpClientRequest.post(url);
     if (encoded.files.length === 0) {
@@ -120,7 +156,9 @@ const makeRequest = (
       if (value === undefined || value === null) continue;
       form.append(
         key,
-        typeof value === "object" ? JSON.stringify(value) : String(value),
+        Predicate.isObjectOrArray(value)
+          ? JSON.stringify(value)
+          : String(value),
       );
     }
     for (const [name, file] of encoded.files) {
@@ -129,8 +167,11 @@ const makeRequest = (
     return request.pipe(HttpClientRequest.bodyFormData(form));
   });
 
-const fail = (error: unknown): Effect.Effect<never> =>
-  Effect.fail(error) as Effect.Effect<never>;
+const fail = (cause: unknown): Effect.Effect<never> => {
+  // SAFETY: distilled's Protocol service fixes its error channel to `never`,
+  // while generated OperationMethod declarations carry these typed failures.
+  return Effect.fail(cause) as Effect.Effect<never>;
+};
 
 const decodeResponse = ({
   response,
@@ -141,8 +182,8 @@ const decodeResponse = ({
 }) =>
   Effect.gen(function* () {
     const text = yield* response.text.pipe(Effect.orDie);
-    const envelope = parseEnvelope(text);
-    if (!envelope) {
+    const parsedEnvelope = parseEnvelope(text);
+    if (Option.isNone(parsedEnvelope)) {
       return yield* fail(
         new TelegramDecodeError({
           message: "Telegram returned a malformed response envelope",
@@ -151,10 +192,11 @@ const decodeResponse = ({
         }),
       );
     }
+    const envelope = parsedEnvelope.value;
     if (!envelope.ok) {
       if (
-        typeof envelope.error_code === "number" &&
-        typeof envelope.description === "string"
+        envelope.error_code !== undefined &&
+        envelope.description !== undefined
       ) {
         return yield* fail(
           new TelegramApiError({
@@ -191,105 +233,147 @@ const decodeResponse = ({
 export const TelegramProtocol: Layer.Layer<API.Protocol> = Layer.succeed(
   API.Protocol,
   API.Protocol.of({
-    encode: ({ input, inputAst }) =>
-      Effect.gen(function* () {
+    encode: ({ input, inputAst }) => {
+      const request = Effect.gen(function* () {
         const resolve = yield* Credentials;
         const config = yield* resolve;
         if (
           getProps(inputAst).length === 0 &&
-          input !== null &&
-          typeof input === "object" &&
-          Object.keys(input as object).length > 0
+          Predicate.isObject(input) &&
+          Object.keys(input).length > 0
         ) {
-          return yield* Effect.fail(
+          return yield* fail(
             new TelegramRequestError({
               message: "Telegram request contains unknown fields",
-              cause: Object.keys(input as object),
+              cause: Object.keys(input),
             }),
           );
         }
         const decoded = yield* Schema.decodeUnknownEffect(
           Schema.make(inputAst),
         )(input, { onExcessProperty: "error" }).pipe(
-          Effect.mapError(
-            (cause) =>
+          Effect.catchEager((cause) =>
+            fail(
               new TelegramRequestError({
                 message: "Telegram request did not match the generated schema",
                 cause,
               }),
+            ),
           ),
         );
-        return yield* makeRequest(
-          decoded as Record<string, unknown>,
-          inputAst,
-          config,
-        ).pipe(
-          Effect.mapError(
-            (cause) =>
+        if (!Predicate.isObject(decoded)) {
+          return yield* fail(
+            new TelegramRequestError({
+              message: "Telegram request schema did not produce an object",
+              cause: decoded,
+            }),
+          );
+        }
+        // SAFETY: every generated Telegram request is a struct whose leaves
+        // are JSON primitives or declared InputFileLike values.
+        const multipartInput = decoded as MultipartObject;
+        return yield* makeRequest(multipartInput, inputAst, config).pipe(
+          Effect.catchEager((cause) =>
+            fail(
               new TelegramRequestError({
                 message: "Telegram file input could not be encoded",
                 cause,
               }),
+            ),
           ),
         );
-      }) as Effect.Effect<HttpClientRequest.HttpClientRequest>,
-    decode: (args) => decodeResponse(args) as Effect.Effect<unknown>,
+      });
+      // SAFETY: Credentials is deliberately resolved per call from the
+      // caller's context; distilled Protocol cannot express that requirement.
+      return request as Effect.Effect<HttpClientRequest.HttpClientRequest>;
+    },
+    decode: (args) => {
+      const decoded = decodeResponse(args);
+      // SAFETY: generated Telegram response schemas have no service
+      // requirements; the dynamic AST type cannot retain that fact.
+      return decoded as Effect.Effect<unknown>;
+    },
   }),
 );
+
+const sanitizeOperation = <A, OperationError, R>(
+  effect: Effect.Effect<A, OperationError | HttpClientError.HttpClientError, R>,
+) => {
+  const safe = effect.pipe(
+    Effect.catchIf(HttpClientError.isHttpClientError, (error) =>
+      Effect.fail(
+        new TelegramTransportError({
+          message: "Telegram HTTP transport failed",
+          cause: { reason: error.reason._tag },
+        }),
+      ),
+    ),
+  );
+  return Effect.flatMap(Effect.serviceOption(Retry), (configured) => {
+    if (Option.isNone(configured)) return safe;
+    return Effect.gen(function* () {
+      const lastError = yield* Ref.make<unknown>(undefined);
+      const options = Predicate.isFunction(configured.value)
+        ? configured.value(lastError)
+        : configured.value;
+      if (!options.while) return yield* safe;
+      const retryable = safe.pipe(
+        Effect.tapError((error) => Ref.set(lastError, error)),
+      );
+      return options.schedule
+        ? yield* retryable.pipe(
+            Effect.retry({
+              while: options.while,
+              schedule: options.schedule,
+            }),
+          )
+        : yield* retryable.pipe(Effect.retry({ while: options.while }));
+    });
+  });
+};
 
 /**
  * Wrap core's dual-style operation so transport failures cannot expose the
  * bot token embedded in Telegram's request URL.
  */
-export const makeTelegramOperation = (config: () => any): any => {
-  const target = API.make(() => ({ ...config(), retry: undefined })) as any;
-  const sanitize = (effect: Effect.Effect<any, any, any>) => {
-    const safe = effect.pipe(
-      Effect.catchIf(HttpClientError.isHttpClientError, (error) =>
-        Effect.fail(
-          new TelegramTransportError({
-            message: "Telegram HTTP transport failed",
-            cause: { reason: error.reason._tag },
-          }),
-        ),
-      ),
-    );
-    return Effect.flatMap(Effect.serviceOption(Retry), (configured) => {
-      if (Option.isNone(configured)) return safe;
-      return Effect.gen(function* () {
-        const lastError = yield* Ref.make<unknown>(undefined);
-        const options =
-          typeof configured.value === "function"
-            ? configured.value(lastError)
-            : configured.value;
-        if (!options.while) return yield* safe;
-        return yield* safe.pipe(
-          Effect.tapError((error) => Ref.set(lastError, error)),
-          Effect.retry({
-            while: options.while,
-            ...(options.schedule ? { schedule: options.schedule as any } : {}),
-          }),
-        );
-      });
-    });
-  };
-  let proxy: any;
+export const makeTelegramOperation = <
+  I extends Schema.Top,
+  O extends Schema.Top,
+  const E extends readonly API.ApiErrorClass[],
+>(
+  config: () => API.OperationConfig<I, O, never, never, E>,
+): API.OperationMethod<
+  Schema.Schema.Type<I>,
+  Schema.Schema.Type<O>,
+  TelegramOpError,
+  TelegramOpContext
+> => {
+  const target = API.make(() => ({ ...config(), retry: undefined }));
+
   const asEffect = () =>
     Effect.map(
-      Effect.context(),
-      (captured) => (input: unknown) =>
+      Effect.context<TelegramOpContext>(),
+      (captured) => (input: Schema.Schema.Type<I>) =>
         Effect.updateContext(
-          sanitize(target(input)),
-          (current): Context.Context<any> => Context.merge(captured, current),
+          sanitizeOperation(target(input)),
+          (current: Context.Context<never>) => Context.merge(captured, current),
         ),
     );
-  proxy = new Proxy(target, {
-    apply: (_target, thisArg, args) =>
-      sanitize(Reflect.apply(target, thisArg, args)),
-    get: (object, property, receiver) =>
-      property === "asEffect"
-        ? asEffect
-        : Reflect.get(object, property, receiver),
+
+  const operation = (input: Schema.Schema.Type<I>) =>
+    sanitizeOperation(target(input));
+  Object.defineProperties(operation, Object.getOwnPropertyDescriptors(target));
+  Object.defineProperty(operation, "asEffect", {
+    value: asEffect,
+    configurable: true,
   });
-  return proxy;
+
+  // SAFETY: descriptors copied from API.make provide Effect's iterator and
+  // pipe protocol. Direct and yielded calls both pass through sanitization.
+  return operation as API.OperationMethod<
+    Schema.Schema.Type<I>,
+    Schema.Schema.Type<O>,
+    TelegramOpError,
+    TelegramOpContext
+  >;
 };

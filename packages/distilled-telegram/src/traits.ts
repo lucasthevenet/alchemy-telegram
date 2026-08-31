@@ -26,5 +26,5 @@ export {
 export const resultSymbol = Symbol.for("distilled-telegram/result");
 export const resultRootSymbol = Symbol.for("distilled-telegram/result-root");
 
-export const Result = (_value?: unknown) => makeAnnotation(resultSymbol, true);
+export const Result = () => makeAnnotation(resultSymbol, true);
 export const ResultRoot = () => makeAnnotation(resultRootSymbol, true);

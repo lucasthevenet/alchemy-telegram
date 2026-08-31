@@ -77,11 +77,23 @@ const secureEqual = (left: string, right: string): boolean => {
   return mismatch === 0;
 };
 
-const response = (status: number, body: Record<string, unknown>) =>
+type WebhookResponseBody =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly error:
+        | "method_not_allowed"
+        | "unauthorized"
+        | "invalid_json"
+        | "invalid_update"
+        | "handler_failed";
+    };
+
+const response = (status: number, body: WebhookResponseBody) =>
   HttpServerResponse.jsonUnsafe(body, { status });
 
 /** @internal Public for host adapters and portable runtime conformance tests. */
-export const makeWebhookHandler =
+export const webhookHandler =
   <SecretReq, LocalReq>(
     application: BotApplication,
     secret: Effect.Effect<
@@ -128,3 +140,6 @@ export const makeWebhookHandler =
 
       return response(200, { ok: true });
     });
+
+/** @deprecated Use {@link webhookHandler}. */
+export const makeWebhookHandler = webhookHandler;

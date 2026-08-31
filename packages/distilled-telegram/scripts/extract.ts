@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 /** Parse the pinned Telegram HTML, apply reviewed patches, and emit Smithy. */
+/* oxlint-disable anti-slop/no-shape-in-symbol-names -- Smithy calls every model definition a "shape"; this generator keeps Smithy's official vocabulary and required `shapes` document key. */
 import type { Field, Object as TelegramObject } from "@gramio/schema-parser";
 import {
   parseLastVersion,
@@ -11,10 +12,13 @@ import { load } from "cheerio";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-type SmithyShape = Record<string, unknown>;
+type JsonPrimitive = boolean | number | string | null;
+type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
+type JsonObject = { [key: string]: JsonValue };
+type SmithyShape = JsonObject;
 type SmithyModel = {
   readonly smithy: "2.0";
-  readonly metadata: Record<string, unknown>;
+  readonly metadata: JsonObject;
   readonly shapes: Record<string, SmithyShape>;
 };
 
@@ -28,12 +32,16 @@ type SchemaPatch = {
 const root = resolve(import.meta.dir, "..");
 const namespace = "com.telegram.botapi";
 const id = (name: string): string => `${namespace}#${name}`;
-const traits = (description?: string, required = false) => ({
-  ...(description
-    ? { "smithy.api#documentation": description.replaceAll(/\s+/g, " ").trim() }
-    : {}),
-  ...(required ? { "smithy.api#required": {} } : {}),
-});
+const traits = (description?: string, required = false) => {
+  const result: JsonObject = {};
+  if (description) {
+    result["smithy.api#documentation"] = description
+      .replaceAll(/\s+/g, " ")
+      .trim();
+  }
+  if (required) result["smithy.api#required"] = {};
+  return result;
+};
 
 const safeName = (value: string): string => {
   const normalized = value.replaceAll(/[^A-Za-z0-9_]/g, "_");
@@ -47,6 +55,9 @@ const shapeName = (...parts: readonly string[]): string =>
     .map((part) => `${part[0]!.toUpperCase()}${part.slice(1)}`)
     .join("");
 
+// SAFETY: Generator inputs are pinned, reviewed JSON files, and the extraction
+// pipeline checks their expected Telegram version, declaration counts,
+// references, and patch assertions before it writes generated artifacts.
 const readJson = async <A>(path: string): Promise<A> =>
   JSON.parse(await readFile(path, "utf8")) as A;
 
@@ -54,7 +65,7 @@ const html = await readFile(
   resolve(root, "spec/telegram-bot-api.html"),
   "utf8",
 );
-const currencies = await readJson<Record<string, unknown>>(
+const currencies = await readJson<Record<string, JsonValue>>(
   resolve(root, "spec/currencies.json"),
 );
 const $ = load(html);
@@ -67,7 +78,7 @@ const schema = toCustomSchema(version, sections, Object.keys(currencies));
 
 const oracle = await readJson<{
   readonly version: string;
-  readonly methods: Readonly<Record<string, unknown>>;
+  readonly methods: Readonly<Record<string, JsonValue>>;
   readonly types: Readonly<
     Record<string, { readonly fields?: readonly { readonly name: string }[] }>
   >;
@@ -76,7 +87,7 @@ const oracle = await readJson<{
 const patchDir = resolve(root, "patches/telegram");
 for (const file of (await readdir(patchDir))
   .filter((name) => name.endsWith(".json"))
-  .sort()) {
+  .toSorted()) {
   const patch = await readJson<SchemaPatch>(resolve(patchDir, file));
   const object = schema.objects.find(
     (candidate) => candidate.name === patch.object,
@@ -233,10 +244,11 @@ const fieldTarget = (field: Field, owner: string, member: string): string => {
   }
 };
 
-const memberShape = (field: Field, owner: string): SmithyShape => ({
-  target: fieldTarget(field, owner, field.key || "Value"),
-  traits: traits(field.description, field.required === true),
-});
+const memberShape = (field: Field, owner: string) =>
+  ({
+    target: fieldTarget(field, owner, field.key || "Value"),
+    traits: traits(field.description, field.required === true),
+  }) satisfies SmithyShape;
 
 for (const object of schema.objects) {
   switch (object.type) {
@@ -313,16 +325,15 @@ for (const method of schema.methods) {
     ),
     traits: { "smithy.api#input": {} },
   });
-  const returnField = {
-    ...method.returns,
-    key: "result",
-    required: true,
-  } as Field;
+  const returnField = { ...method.returns, key: "result" };
+  // SAFETY: @gramio/schema-parser defines Method.returns as a Field with only
+  // its key omitted; restoring that key reconstructs the complete Field union.
+  const returnTarget = fieldTarget(returnField as Field, outputName, "Result");
   addShape(outputName, {
     type: "structure",
     members: {
       result: {
-        target: fieldTarget(returnField, outputName, "Result"),
+        target: returnTarget,
         traits: {
           "smithy.api#required": {},
           [`${namespace}#result`]: {},
@@ -331,15 +342,21 @@ for (const method of schema.methods) {
     },
     traits: { "smithy.api#output": {} },
   });
+  const operationTraits: JsonObject = {};
+  if (method.description !== undefined) {
+    operationTraits["smithy.api#documentation"] = method.description;
+  }
+  operationTraits["smithy.api#http"] = {
+    method: "POST",
+    uri: `/${method.name}`,
+    code: 200,
+  };
+  operationTraits[`${namespace}#multipart`] = method.hasMultipart;
   const operationTarget = addShape(operationName, {
     type: "operation",
     input: { target: id(inputName) },
     output: { target: id(outputName) },
-    traits: {
-      "smithy.api#documentation": method.description,
-      "smithy.api#http": { method: "POST", uri: `/${method.name}`, code: 200 },
-      [`${namespace}#multipart`]: method.hasMultipart,
-    },
+    traits: operationTraits,
   });
   operationTargets.push({ target: operationTarget });
 }
@@ -353,7 +370,7 @@ addShape("TelegramBotApi", {
 
 const missingReferences = [...referenced]
   .filter((name) => !shapes[id(name)])
-  .sort();
+  .toSorted();
 if (missingReferences.length) {
   throw new Error(
     `Unresolved Telegram references: ${missingReferences.join(", ")}`,
@@ -364,7 +381,11 @@ const model: SmithyModel = {
   smithy: "2.0",
   metadata: {
     telegramBotApiVersion: `${version.major}.${version.minor}`,
-    telegramBotApiReleaseDate: version.release_date,
+    telegramBotApiReleaseDate: {
+      year: version.release_date.year,
+      month: version.release_date.month,
+      day: version.release_date.day,
+    },
     parser: "@gramio/schema-parser@1.2.0",
     methods: schema.methods.length,
     objects: schema.objects.length,

@@ -1,6 +1,7 @@
 /** Portable Telegram upload values and constructors. */
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Predicate from "effect/Predicate";
 import * as Stream from "effect/Stream";
 
 const TelegramFileTypeId = Symbol.for("distilled-telegram/InputFile");
@@ -62,13 +63,47 @@ export const fromPath = (
     });
   });
 
-export const isInputFileLike = (value: unknown): value is InputFileLike =>
-  (typeof Blob !== "undefined" && value instanceof Blob) ||
+const isBlob: Predicate.Refinement<unknown, Blob> = (value): value is Blob => {
+  const BlobConstructor = globalThis.Blob;
+  return (
+    Predicate.isFunction(BlobConstructor) && value instanceof BlobConstructor
+  );
+};
+
+const isReadableStream: Predicate.Refinement<
+  unknown,
+  ReadableStream<Uint8Array>
+> = (value): value is ReadableStream<Uint8Array> => {
+  const ReadableStreamConstructor = globalThis.ReadableStream;
+  return (
+    Predicate.isFunction(ReadableStreamConstructor) &&
+    value instanceof ReadableStreamConstructor
+  );
+};
+
+const isFileData: Predicate.Refinement<unknown, FileData> = (
+  value,
+): value is FileData =>
+  isBlob(value) ||
   value instanceof Uint8Array ||
   value instanceof ArrayBuffer ||
-  (typeof ReadableStream !== "undefined" && value instanceof ReadableStream) ||
-  Stream.isStream(value) ||
-  (value !== null && typeof value === "object" && TelegramFileTypeId in value);
+  isReadableStream(value) ||
+  Stream.isStream(value);
+
+const hasTelegramFileTypeId = Predicate.hasProperty(TelegramFileTypeId);
+const hasData = Predicate.hasProperty("data");
+
+const isTelegramFile: Predicate.Refinement<unknown, TelegramFile> = (
+  value,
+): value is TelegramFile =>
+  hasTelegramFileTypeId(value) &&
+  value[TelegramFileTypeId] === true &&
+  hasData(value) &&
+  isFileData(value.data);
+
+export const isInputFileLike: Predicate.Refinement<unknown, InputFileLike> = (
+  value,
+): value is InputFileLike => isFileData(value) || isTelegramFile(value);
 
 export interface ResolvedFile {
   readonly blob: Blob;
@@ -76,39 +111,37 @@ export interface ResolvedFile {
 }
 
 const rawToBlob = (data: FileData, contentType?: string) => {
-  if (typeof Blob !== "undefined" && data instanceof Blob) {
+  if (isBlob(data)) {
     return Effect.succeed(data);
   }
   if (data instanceof Uint8Array || data instanceof ArrayBuffer) {
-    const part = data instanceof Uint8Array ? Uint8Array.from(data) : data;
-    return Effect.succeed(new Blob([part as BlobPart], { type: contentType }));
+    const part =
+      data instanceof Uint8Array ? Uint8Array.from(data).buffer : data;
+    return Effect.succeed(new Blob([part], { type: contentType }));
   }
   if (Stream.isStream(data)) {
     return Effect.flatMap(Stream.toReadableStreamEffect(data), (readable) =>
       Effect.tryPromise(() => new Response(readable).blob()),
     );
   }
-  return Effect.tryPromise(() => new Response(data as ReadableStream).blob());
+  return Effect.tryPromise(() => new Response(data).blob());
 };
 
 export const resolveInputFile = (
   value: InputFileLike,
 ): Effect.Effect<ResolvedFile, unknown, never> => {
-  const wrapped =
-    value !== null && typeof value === "object" && TelegramFileTypeId in value
-      ? (value as TelegramFile)
-      : undefined;
-  return rawToBlob(
-    wrapped?.data ?? (value as FileData),
-    wrapped?.contentType,
-  ).pipe(
+  const wrapped = isTelegramFile(value) ? value : undefined;
+  const data = isTelegramFile(value) ? value.data : value;
+  return rawToBlob(data, wrapped?.contentType).pipe(
     Effect.map((blob) => ({
       blob,
       filename:
         wrapped?.filename ??
-        (typeof File !== "undefined" && value instanceof File
+        (isBlob(value) &&
+        Predicate.hasProperty(value, "name") &&
+        Predicate.isString(value.name)
           ? value.name
           : undefined),
     })),
-  ) as Effect.Effect<ResolvedFile, unknown, never>;
+  );
 };

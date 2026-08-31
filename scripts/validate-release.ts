@@ -2,30 +2,65 @@
 /** Validate lockstep metadata, provenance, exports, and npm tarball contents. */
 import { mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 
-type PackageJson = {
-  readonly name: string;
-  readonly version: string;
-  readonly license: string;
-  readonly repository: {
-    readonly type: string;
-    readonly url: string;
-    readonly directory: string;
-  };
-  readonly publishConfig?: {
-    readonly access?: string;
-    readonly provenance?: boolean;
-  };
-  readonly dependencies?: Readonly<Record<string, string>>;
-  readonly exports?: unknown;
-  readonly [key: string]: unknown;
-};
+const PackageJson = Schema.Struct({
+  name: Schema.String,
+  version: Schema.String,
+  license: Schema.String,
+  repository: Schema.Struct({
+    type: Schema.String,
+    url: Schema.String,
+    directory: Schema.String,
+  }),
+  publishConfig: Schema.optionalKey(
+    Schema.Struct({
+      access: Schema.optionalKey(Schema.String),
+      provenance: Schema.optionalKey(Schema.Boolean),
+    }),
+  ),
+  dependencies: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  exports: Schema.optionalKey(Schema.Json),
+});
 
-type PackResult = {
-  readonly name: string;
-  readonly version: string;
-  readonly files: readonly { readonly path: string }[];
-};
+const PackResult = Schema.Struct({
+  name: Schema.String,
+  version: Schema.String,
+  files: Schema.Array(Schema.Struct({ path: Schema.String })),
+});
+
+const Provenance = Schema.Struct({
+  parser: Schema.String,
+  sources: Schema.Record(
+    Schema.String,
+    Schema.Struct({
+      url: Schema.String,
+      sha256: Schema.String,
+      bytes: Schema.Number,
+    }),
+  ),
+});
+
+const GeneratedModel = Schema.Struct({
+  metadata: Schema.Struct({
+    telegramBotApiVersion: Schema.String,
+    methods: Schema.Number,
+  }),
+});
+
+const decodePackageJson = Schema.decodeUnknownSync(
+  Schema.fromJsonString(PackageJson),
+);
+const decodeProvenance = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Provenance),
+);
+const decodeGeneratedModel = Schema.decodeUnknownSync(
+  Schema.fromJsonString(GeneratedModel),
+);
+const decodePackResults = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Array(PackResult)),
+);
 
 const root = resolve(import.meta.dir, "..");
 const repository = "git+https://github.com/lucasthevenet/alchemy-telegram.git";
@@ -73,18 +108,18 @@ const packages = [
   },
 ] as const;
 
-const readJson = async <A>(path: string): Promise<A> =>
-  JSON.parse(await readFile(path, "utf8")) as A;
+const readPackageJson = async (path: string) =>
+  decodePackageJson(await readFile(path, "utf8"));
 const fail = (message: string): never => {
   throw new Error(message);
 };
 const sha256 = (value: Uint8Array): string =>
   new Bun.CryptoHasher("sha256").update(value).digest("hex");
 
-const manifests = new Map<string, PackageJson>();
+const manifests = new Map<string, typeof PackageJson.Type>();
 for (const entry of packages) {
   const manifestPath = resolve(root, entry.directory, "package.json");
-  const manifest = await readJson<PackageJson>(manifestPath);
+  const manifest = await readPackageJson(manifestPath);
   manifests.set(entry.name, manifest);
   if (manifest.name !== entry.name) {
     fail(`${entry.directory}: expected package name ${entry.name}`);
@@ -112,8 +147,11 @@ for (const entry of packages) {
     );
   }
 
-  const visitExports = async (value: unknown): Promise<void> => {
-    if (typeof value === "string") {
+  const visitExports = async (
+    value: Schema.Json | undefined,
+  ): Promise<void> => {
+    if (value === undefined) return;
+    if (Predicate.isString(value)) {
       if (!value.includes("*")) {
         const target = resolve(root, entry.directory, value);
         if (!(await Bun.file(target).exists())) {
@@ -122,9 +160,14 @@ for (const entry of packages) {
       }
       return;
     }
-    if (value && typeof value === "object") {
-      for (const child of Object.values(value)) await visitExports(child);
+    if (
+      value === null ||
+      Predicate.isNumber(value) ||
+      Predicate.isBoolean(value)
+    ) {
+      return;
     }
+    for (const child of Object.values(value)) await visitExports(child);
   };
   await visitExports(manifest.exports);
 }
@@ -150,15 +193,7 @@ const provenancePath = resolve(
   root,
   "packages/distilled-telegram/spec/provenance.json",
 );
-const provenance = await readJson<{
-  readonly parser: string;
-  readonly sources: Readonly<
-    Record<
-      string,
-      { readonly url: string; readonly sha256: string; readonly bytes: number }
-    >
-  >;
-}>(provenancePath);
+const provenance = decodeProvenance(await readFile(provenancePath, "utf8"));
 if (provenance.parser !== "@gramio/schema-parser@1.2.0") {
   fail(`Unexpected parser provenance: ${provenance.parser}`);
 }
@@ -182,12 +217,12 @@ for (const [relative, url] of Object.entries(expectedSources)) {
     fail(`Provenance mismatch for ${relative}`);
   }
 }
-const model = await readJson<{
-  readonly metadata: {
-    readonly telegramBotApiVersion: string;
-    readonly methods: number;
-  };
-}>(resolve(root, "packages/distilled-telegram/.generated-specs/telegram.json"));
+const model = decodeGeneratedModel(
+  await readFile(
+    resolve(root, "packages/distilled-telegram/.generated-specs/telegram.json"),
+    "utf8",
+  ),
+);
 if (
   model.metadata.telegramBotApiVersion !== "10.3" ||
   model.metadata.methods !== 185
@@ -259,7 +294,7 @@ for (const entry of packages) {
   const stdout = await new Response(child.stdout).text();
   const exitCode = await child.exited;
   if (exitCode !== 0) process.exit(exitCode);
-  const [pack] = JSON.parse(stdout) as readonly PackResult[];
+  const [pack] = decodePackResults(stdout);
   if (!pack || pack.name !== entry.name || pack.version !== sdk.version) {
     fail(`${entry.name}: npm pack returned unexpected metadata`);
   }

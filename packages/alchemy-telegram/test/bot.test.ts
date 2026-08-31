@@ -17,6 +17,12 @@ const messageUpdate = (text: string): Update => ({
   },
 });
 
+const runDispatch = (effect: Effect.Effect<void, unknown, unknown>) => {
+  // SAFETY: every handler registered by this test file closes over local test
+  // state only, so dispatch has no unprovided runtime service requirements.
+  return Effect.runPromise(effect as Effect.Effect<void>);
+};
+
 describe("Bot application", () => {
   test("dispatches exactly one specialized handler before On", async () => {
     const calls: string[] = [];
@@ -34,9 +40,7 @@ describe("Bot application", () => {
         { manageResources: false },
       ),
     );
-    await Effect.runPromise(
-      bot.dispatch(messageUpdate("/link account")) as Effect.Effect<void>,
-    );
+    await runDispatch(bot.dispatch(messageUpdate("/link account")));
     expect(calls).toEqual(["command"]);
   });
 
@@ -60,9 +64,7 @@ describe("Bot application", () => {
         { manageResources: false },
       ),
     );
-    await Effect.runPromise(
-      bot.dispatch(messageUpdate("/count nope")) as Effect.Effect<void>,
-    );
+    await runDispatch(bot.dispatch(messageUpdate("/count nope")));
     expect(calls).toEqual(["invalid"]);
   });
 
@@ -88,7 +90,7 @@ describe("Bot application", () => {
           { manageResources: false },
         ),
       );
-      await Effect.runPromise(
+      await runDispatch(
         bot.dispatch({
           update_id: 1,
           callback_query: {
@@ -97,7 +99,7 @@ describe("Bot application", () => {
             chat_instance: "chat",
             data: "confirm",
           },
-        }) as Effect.Effect<void>,
+        }),
       );
       expect(calls).toEqual(["handler", "answerCallbackQuery"]);
     } finally {
@@ -127,7 +129,7 @@ describe("Bot application", () => {
           { manageResources: false },
         ),
       );
-      await Effect.runPromise(
+      await runDispatch(
         bot.dispatch({
           update_id: 1,
           callback_query: {
@@ -136,7 +138,7 @@ describe("Bot application", () => {
             chat_instance: "chat",
             data: "confirm",
           },
-        }) as Effect.Effect<void>,
+        }),
       );
       expect(calls).toEqual(["answerCallbackQuery"]);
     } finally {

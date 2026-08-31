@@ -1,16 +1,18 @@
+import type { Api } from "alchemy-telegram";
+
 type Fixture = {
   readonly name: string;
   readonly path: string;
-  readonly update: Record<string, unknown>;
+  readonly update: Api.Update;
 };
 
 const origin = (
   process.env.TELEGRAM_EXAMPLE_ORIGIN ?? "http://localhost:8787"
 ).replace(/\/+$/, "");
 
-const privateChat = { id: 42, type: "private" };
-const sender = { id: 42, is_bot: false, first_name: "Local" };
-const message = (message_id: number, text: string) => ({
+const privateChat: Api.Chat = { id: 42, type: "private" };
+const sender: Api.User = { id: 42, is_bot: false, first_name: "Local" };
+const message = (message_id: number, text: string): Api.Message => ({
   message_id,
   date: 1_700_000_000,
   chat: privateChat,

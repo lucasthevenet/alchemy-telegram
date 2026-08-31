@@ -9,6 +9,7 @@
         "@oxlint/plugins": "^1.80.0",
         "@types/bun": "catalog:tooling",
         "@types/node": "catalog:tooling",
+        "effect": "catalog:effect",
         "oxfmt": "catalog:tooling",
         "oxlint": "catalog:tooling",
         "typescript": "catalog:build",
