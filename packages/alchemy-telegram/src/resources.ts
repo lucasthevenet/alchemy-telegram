@@ -6,6 +6,7 @@ import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
 import {
   RandomProvider,
   Resource,
+  type Input,
   type Resource as AlchemyResource,
 } from "alchemy";
 import { Unowned } from "alchemy/AdoptPolicy";
@@ -65,22 +66,45 @@ export type CommandSet = AlchemyResource<
 export const CommandSet = Resource<CommandSet>("Telegram.Bot.CommandSet");
 
 export interface WebhookProps extends AuthProps {
-  readonly url: string;
-  readonly secret_token: Redacted.Redacted<string>;
-  readonly allowed_updates?: readonly string[];
-  readonly drop_pending_updates?: boolean;
+  /** URL that Telegram will POST updates to. */
+  readonly url: Input<string>;
+  /** Optional token copied into Telegram's webhook secret header. */
+  readonly secretToken?: Redacted.Redacted<string>;
+  /** Telegram Update events to deliver. Omitting this uses Telegram's default. */
+  readonly events?: readonly string[];
+  /** Ask Telegram to discard queued updates during this reconciliation. */
+  readonly dropPendingUpdates?: boolean;
 }
 export interface WebhookAttributes {
   readonly bot_id: number;
   readonly url: string;
   readonly allowed_updates?: readonly string[];
 }
-export type WebhookConfig = AlchemyResource<
+export type Webhook = AlchemyResource<
   "Telegram.Bot.Webhook",
   WebhookProps,
   WebhookAttributes
 >;
-export const WebhookConfig = Resource<WebhookConfig>("Telegram.Bot.Webhook");
+
+/**
+ * A Telegram Bot webhook registration.
+ *
+ * This resource owns Telegram's singleton webhook configuration for the Bot
+ * identified by `token`. It accepts deferred Alchemy inputs for `url`, updates
+ * the registration in place, repairs out-of-band deletion, and unregisters an
+ * owned URL when destroyed.
+ *
+ * Use {@link consumeEvents} when a host adapter should also provision the
+ * delivery URL, verify requests, and dispatch updates to a Bot Application.
+ *
+ * @resource
+ */
+export const Webhook = Resource<Webhook>("Telegram.Bot.Webhook");
+
+/** @deprecated Use {@link Webhook}. */
+export type WebhookConfig = Webhook;
+/** @deprecated Use {@link Webhook}. */
+export const WebhookConfig = Webhook;
 
 export interface MenuButtonProps extends AuthProps {
   readonly menu_button: MenuButton;
@@ -363,11 +387,12 @@ const isLocalUrl = (url: string): boolean => {
 };
 
 export const WebhookProvider = () =>
-  Provider.succeed(WebhookConfig, {
+  Provider.succeed(Webhook, {
     stables: ["bot_id"],
     read: Effect.fn(function* ({ olds, output }) {
       const user = yield* identify(olds, output?.bot_id);
-      if (isLocalUrl(olds.url)) return output;
+      const desiredUrl = olds.url as string;
+      if (isLocalUrl(desiredUrl)) return output;
       const info = yield* call(olds, Telegram.getWebhookInfo({}));
       if (!info.url) return undefined;
       const attrs = {
@@ -379,30 +404,33 @@ export const WebhookProvider = () =>
     }),
     reconcile: Effect.fn(function* ({ news, output }) {
       const user = yield* identify(news, output?.bot_id);
-      if (!isLocalUrl(news.url)) {
+      const url = news.url as string;
+      if (!isLocalUrl(url)) {
         yield* call(
           news,
           Telegram.setWebhook({
-            url: news.url,
-            secret_token: Redacted.value(news.secret_token),
-            allowed_updates: news.allowed_updates
-              ? [...news.allowed_updates]
+            url,
+            secret_token: news.secretToken
+              ? Redacted.value(news.secretToken)
               : undefined,
-            drop_pending_updates: news.drop_pending_updates,
+            allowed_updates: news.events ? [...news.events] : undefined,
+            drop_pending_updates: news.dropPendingUpdates,
           }),
         );
       }
       return {
         bot_id: user.id,
-        url: news.url,
-        allowed_updates: news.allowed_updates,
+        url,
+        allowed_updates: news.events,
       };
     }),
     delete: Effect.fn(function* ({ olds, output }) {
       yield* identify(olds, output.bot_id);
-      if (!isLocalUrl(olds.url)) {
-        yield* call(olds, Telegram.deleteWebhook({}));
-      }
+      const ownedUrl = olds.url as string;
+      if (isLocalUrl(ownedUrl)) return;
+      const observed = yield* call(olds, Telegram.getWebhookInfo({}));
+      if (observed.url !== ownedUrl) return;
+      yield* call(olds, Telegram.deleteWebhook({}));
     }),
   });
 

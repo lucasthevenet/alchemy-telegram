@@ -1,11 +1,16 @@
 # Keep the runtime portable across supported hosts
 
-Keep Bot definition, Update decoding, dispatch, and the Webhook `HttpRouter`
-Layer platform-neutral across Node, Bun, and workerd. The caller supplies the
-public origin explicitly, so host resources such as `Cloudflare.Worker.URL` stay
-outside this package. The provider supports Webhooks only in V1; long polling
-remains available through `distilled-telegram`, and multiple Bot Applications
-may share a host through distinct Webhook paths. In local Alchemy development,
-register the route and bindings but skip remote Webhook reconciliation for local
-origins; support local fixture posts and warn before a development Bot can
-displace an existing Webhook.
+Keep Bot definition, Update decoding, dispatch, and the `BotEventSource`
+interface host-neutral. Host behavior belongs in adapters: V1 ships
+`TelegramCloudflare.BotEventSourceLive` from `alchemy-telegram/Cloudflare`, and
+other hosts may implement the same service without changing Bot Applications.
+The standalone `Telegram.Webhook` resource remains available when a caller owns
+delivery or targets another host.
+
+The Cloudflare adapter derives the public delivery URL from its enclosing
+Worker, claims only its configured path, and leaves the Worker's own fetch
+handler untouched for other requests. Multiple Bot Applications may share one
+Worker through distinct paths. In local Alchemy development the Worker URL is
+local, so the adapter installs its listener and bindings while the Webhook
+provider skips remote `setWebhook`; local fixture posts remain available.
+Long polling stays outside the high-level V1 runtime.

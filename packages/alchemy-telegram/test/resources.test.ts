@@ -8,7 +8,7 @@ import {
   CommandSetProvider,
   Profile,
   ProfileProvider,
-  WebhookConfig,
+  Webhook,
   WebhookProvider,
 } from "../src/resources.ts";
 
@@ -187,11 +187,11 @@ describe("Alchemy Telegram providers", () => {
       token: Redacted.make("1:first"),
       apiOrigin: server.url.origin,
       url: "https://ours.example/webhook",
-      secret_token: Redacted.make("secret"),
+      secretToken: Redacted.make("secret"),
     };
     const observed = await Effect.runPromise(
       Effect.gen(function* () {
-        const provider = yield* WebhookConfig.Provider;
+        const provider = yield* Webhook.Provider;
         return yield* provider.read!({
           id: "Webhook",
           fqn: "Webhook",
@@ -202,5 +202,111 @@ describe("Alchemy Telegram providers", () => {
       }).pipe(Effect.provide(WebhookProvider())),
     );
     expect(Unowned.is(observed)).toBe(true);
+  });
+
+  test("reconciles the public Webhook resource", async () => {
+    let setWebhookBody: Record<string, unknown> | undefined;
+    server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        const method = new URL(request.url).pathname.split("/").at(-1)!;
+        if (method === "getMe") {
+          return Response.json({
+            ok: true,
+            result: { id: 42, is_bot: true, first_name: "Bot" },
+          });
+        }
+        if (method === "setWebhook") {
+          setWebhookBody = (await request.json()) as Record<string, unknown>;
+        }
+        return Response.json({ ok: true, result: true });
+      },
+    });
+    const props = {
+      token: Redacted.make("1:first"),
+      apiOrigin: server.url.origin,
+      url: "https://ours.example/webhook",
+      secretToken: Redacted.make("secret"),
+      events: ["message", "callback_query"],
+      dropPendingUpdates: true,
+    };
+
+    const output = await Effect.runPromise(
+      Effect.gen(function* () {
+        const provider = yield* Webhook.Provider;
+        return yield* provider.reconcile({
+          ...lifecycleInput,
+          news: props,
+          olds: undefined,
+          output: undefined,
+        });
+      }).pipe(Effect.provide(WebhookProvider())),
+    );
+
+    expect(Webhook.Type).toBe("Telegram.Bot.Webhook");
+    expect(output).toEqual({
+      bot_id: 42,
+      url: props.url,
+      allowed_updates: props.events,
+    });
+    expect(setWebhookBody).toEqual({
+      url: props.url,
+      secret_token: "secret",
+      allowed_updates: props.events,
+      drop_pending_updates: true,
+    });
+  });
+
+  test("does not delete a webhook that was replaced out of band", async () => {
+    let observedUrl = "https://foreign.example/webhook";
+    let deletes = 0;
+    server = Bun.serve({
+      port: 0,
+      fetch: (request) => {
+        const method = new URL(request.url).pathname.split("/").at(-1)!;
+        if (method === "getMe") {
+          return Response.json({
+            ok: true,
+            result: { id: 42, is_bot: true, first_name: "Bot" },
+          });
+        }
+        if (method === "getWebhookInfo") {
+          return Response.json({
+            ok: true,
+            result: {
+              url: observedUrl,
+              has_custom_certificate: false,
+              pending_update_count: 0,
+            },
+          });
+        }
+        if (method === "deleteWebhook") deletes++;
+        return Response.json({ ok: true, result: true });
+      },
+    });
+    const props = {
+      token: Redacted.make("1:first"),
+      apiOrigin: server.url.origin,
+      url: "https://ours.example/webhook",
+      secretToken: Redacted.make("secret"),
+    };
+    const remove = Effect.gen(function* () {
+      const provider = yield* Webhook.Provider;
+      return yield* provider.delete({
+        ...lifecycleInput,
+        olds: props,
+        output: {
+          bot_id: 42,
+          url: props.url,
+        },
+      });
+    }).pipe(Effect.provide(WebhookProvider()));
+
+    await Effect.runPromise(remove);
+    expect(deletes).toBe(0);
+
+    observedUrl = props.url;
+    await Effect.runPromise(remove);
+    expect(deletes).toBe(1);
   });
 });

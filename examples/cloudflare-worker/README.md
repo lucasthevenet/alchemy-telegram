@@ -15,7 +15,6 @@ ignored `.env` file:
 NOTIFICATIONS_TELEGRAM_BOT_TOKEN=123456:notifications-secret
 OPERATIONS_TELEGRAM_BOT_TOKEN=654321:operations-secret
 TELEGRAM_PUBLIC_HOST=bots.example.com
-TELEGRAM_PUBLIC_ORIGIN=http://localhost:8787
 ```
 
 The public host must belong to a Cloudflare zone available to the deployment
@@ -37,10 +36,11 @@ Start local Alchemy development from this directory:
 bunx alchemy dev
 ```
 
-`TELEGRAM_PUBLIC_ORIGIN` is the explicit origin supplied by the application. The
-localhost value makes the Webhook provider mount the routes without calling
+The Cloudflare Bot Event Source derives its URL from the enclosing Worker.
+Under `alchemy dev`, that is the localhost address printed by Alchemy. The
+Webhook provider registers the listeners and secret bindings but skips
 Telegram's remote `setWebhook`, so local development cannot displace a Bot's
-deployed Webhook. It must match the address printed by `alchemy dev`.
+deployed Webhook.
 
 Other declared Bot Configuration is still reconciled against Telegram during
 local development, which is why this example requires dedicated development
@@ -69,39 +69,30 @@ Authenticate Alchemy for Cloudflare, then deploy from this directory:
 
 ```sh
 bunx alchemy login
-TELEGRAM_PUBLIC_ORIGIN=https://bots.example.com bunx alchemy deploy
-```
-
-Or set the production origin in the deployment environment before running:
-
-```sh
 bunx alchemy deploy
 ```
 
-For deployment, `TELEGRAM_PUBLIC_ORIGIN` must be `https://` plus the same host
-as `TELEGRAM_PUBLIC_HOST`. Keeping the local origin intentionally prevents
-remote registration.
-
-The stack returns the Worker's URL. Each `Telegram.Webhook` combines that
-caller-supplied origin with its own path:
+`TELEGRAM_PUBLIC_HOST` configures the Worker's custom domain. The Bot Event
+Source uses that Worker's URL as the Webhook origin and combines it with each
+`consumeEvents` path:
 
 - `/api/telegram/notifications`
 - `/api/telegram/operations`
 
-Another host can pass a literal or deferred origin instead:
+The Worker initialization provides the Cloudflare adapter and consumes each Bot
+Application independently:
 
 ```ts
-Telegram.Webhook(NotificationsBot, {
-  origin: "https://bots.example.com",
+yield* Telegram.consumeEvents(NotificationsBot, {
   path: "/api/telegram/notifications",
 });
 ```
 
-The provider never discovers the public host automatically.
-
-With Alchemy `2.0.0-beta.74`, `Cloudflare.Worker.URL` is a runtime-deferred
-accessor. Telegram needs the Webhook URL during planning, so use a plan-resolvable
-literal, Config value, or Alchemy Output for `origin`.
+This is the same host/event-source split as
+[Alchemy's GitHub event consumers](https://alchemy.run/github/events/#consume-events-from-a-worker):
+the host adapter owns URL derivation, secret binding, and request delivery. Use
+the lower-level `Telegram.Webhook("id", { token, url, ... })` resource when
+another host or HTTP module owns the public URL and delivery path.
 
 ## Rotate a Bot token
 

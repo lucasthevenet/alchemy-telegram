@@ -27,8 +27,11 @@ Bots. It does not create or delete Telegram Bot identities.
 
 ### `alchemy-telegram`
 
-- Expose `Bot`, `Command`, `Hears`, `CallbackQuery`, `On`, and `Webhook` from the
-  host-neutral package root.
+- Expose `Bot`, `Command`, `Hears`, `CallbackQuery`, `On`, `Webhook`,
+  `BotEventSource`, and `consumeEvents` from the host-neutral package root.
+- Export the Cloudflare Worker adapter as
+  `TelegramCloudflare.BotEventSourceLive` from
+  `alchemy-telegram/Cloudflare`; do not import it from the package root.
 - Publish an Alchemy provider collection using stable resource Types:
   - `Telegram.Bot.Profile`
   - `Telegram.Bot.CommandSet`
@@ -103,9 +106,9 @@ const Bot = Telegram.Bot(
   })
 )
 
-const Routes = Telegram.Webhook(Bot, {
-  origin: Cloudflare.Worker.URL,
+yield* Telegram.consumeEvents(Bot, {
   path: "/api/telegram/webhook",
+  events: ["message", "callback_query"],
 })
 ```
 
@@ -138,27 +141,46 @@ metadata; handler closures remain runtime code. Yielding a Bot returns:
 - `CallbackQuery` auto-answers successfully handled queries unless disabled or
   explicitly answered by the handler.
 
-## Webhook semantics
+## Webhook and event-source semantics
 
-`Telegram.Webhook(Bot, { origin, path })` returns the complete Effect
-`HttpRouter` route Layer. The caller must supply the public origin; the package
-does no host discovery. `origin` may be an Alchemy Output such as
-`Cloudflare.Worker.URL`.
+`Telegram.Webhook("id", { token, url, ... })` is the host-independent Alchemy
+resource that owns the Bot API registration. Its `url` is an Alchemy Input so a
+registration may depend on a host declared in the same stack. It updates in
+place, repairs out-of-band deletion, and unregisters only when Telegram's
+current URL still matches its owned URL.
 
-- Generate one stable 32-byte `Alchemy.Random` secret per Webhook.
-- Pass the redacted value to `setWebhook` and bind the same value to the host as
-  secret text for request verification.
+`Telegram.consumeEvents(Bot, { path?, events?, dropPendingUpdates? })` is the
+host-neutral high-level interface. It requires the `BotEventSource` service and
+delegates Webhook provisioning and delivery to the provided host adapter. It
+evaluates the Bot Application once during each phase: planning declares Bot
+Configuration, while deployed-host initialization builds the runtime handler
+registry.
+
+V1 ships `TelegramCloudflare.BotEventSourceLive` from
+`alchemy-telegram/Cloudflare`. The adapter derives the public URL from its
+enclosing Worker, so the high-level interface has no `origin` prop. It creates a
+deterministic `/__alchemy/telegram/<encoded Bot Application name>` path when
+`path` is omitted, claims that path without taking ownership of the Worker's own
+fetch handler, and lets unrelated requests fall through.
+
+- Generate one stable 32-byte `Alchemy.Random` secret per Bot Event Source.
+- Pass the Bot Event Source's redacted value to `setWebhook` and bind the same
+  value through the host adapter as secret text for request verification. A
+  direct Webhook resource accepts an optional caller-owned secret instead.
+- Map `events` to Telegram's `allowed_updates` request field.
 - Await handler completion.
 - Return 200 after successful handling, 401 for invalid secret, 400 for invalid
-  input, and 500 for handler failure.
+  input, 405 for a non-POST request on the claimed path, and 500 for handler
+  failure.
 - Do not drop pending updates on removal by default.
 - Do not implement secret rotation in V1.
 - Treat local state as sensitive; recommend an encrypted production state
   backend because Effect redaction is not state encryption.
-- During local development with a local origin, register the route and bindings
-  but skip remote `setWebhook`. Allow fixture POSTs. An explicit public origin or
-  remotely deployed host enables Webhook reconciliation and must warn before it
-  can displace an existing development/production Webhook.
+- During local development, derive the localhost URL from the Worker, register
+  the listener and bindings, but skip remote `setWebhook`. Allow fixture POSTs
+  without the secret header. A remotely deployed Worker enables Webhook
+  reconciliation and must warn before it can displace an existing
+  development/production Webhook.
 
 ## Provider lifecycle
 
@@ -174,6 +196,8 @@ does no host discovery. `origin` may be an Alchemy Output such as
 - Profile and Command Set declarations directly claim their slices.
 - A non-empty Webhook pointing elsewhere is unowned and requires explicit
   Alchemy adoption.
+- Destroy a Webhook registration only when Telegram's current URL still matches
+  the URL owned in its props; preserve registrations replaced out of band.
 - Compile Commands into complete Command Sets per Bot, scope, and language.
   Reject duplicates, replace sets atomically, delete stale owned sets, and use
   default descriptions for missing locale translations.
@@ -194,5 +218,5 @@ does no host discovery. `origin` may be an Alchemy Output such as
 - Test provider plan, deploy, update, drift, adoption, and destroy.
 - Run secured scheduled/release live tests against a dedicated Bot.
 - Provide examples for localization, all handler helpers, multiple Bots, local
-  fixture delivery, explicit public origins, safe same-Bot token rotation, and
+  fixture delivery, Worker event consumption, safe same-Bot token rotation, and
   foreign Webhook adoption.

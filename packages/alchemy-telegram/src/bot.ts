@@ -343,6 +343,8 @@ export const Bot = <E, R>(
   internal?: { readonly manageResources?: boolean },
 ): Effect.Effect<BotApplication, E | Config.ConfigError, R> =>
   Effect.gen(function* () {
+    const manageResources =
+      internal?.manageResources !== false && !globalThis.__ALCHEMY_RUNTIME__;
     const token = Config.isConfig(options.token)
       ? yield* options.token
       : Redacted.isRedacted(options.token)
@@ -355,7 +357,7 @@ export const Bot = <E, R>(
       commands: [],
     };
     yield* declarations.pipe(Effect.provideService(Builder, state));
-    if (internal?.manageResources !== false && options.profile) {
+    if (manageResources && options.profile) {
       const convertProfile = (profile: LocalizedProfile | undefined) =>
         profile
           ? {
@@ -384,9 +386,7 @@ export const Bot = <E, R>(
         readonly commands: CommandDeclaration[];
       }
     >();
-    for (const declaration of internal?.manageResources === false
-      ? []
-      : state.commands) {
+    for (const declaration of manageResources ? state.commands : []) {
       for (const scope of declaration.options.scopes ?? [{ type: "default" }]) {
         const key = JSON.stringify(scope);
         const group = scoped.get(key) ?? { scope, commands: [] };
@@ -418,17 +418,14 @@ export const Bot = <E, R>(
         });
       }
     }
-    if (internal?.manageResources !== false && options.menuButton) {
+    if (manageResources && options.menuButton) {
       yield* MenuButtonConfig(`${name}MenuButton`, {
         token,
         apiOrigin: options.apiOrigin,
         menu_button: options.menuButton,
       });
     }
-    if (
-      internal?.manageResources !== false &&
-      options.defaultAdministratorRights
-    ) {
+    if (manageResources && options.defaultAdministratorRights) {
       yield* DefaultAdministratorRightsConfig(`${name}AdministratorRights`, {
         token,
         apiOrigin: options.apiOrigin,

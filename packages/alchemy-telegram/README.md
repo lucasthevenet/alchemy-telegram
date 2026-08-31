@@ -7,6 +7,7 @@ Alchemy V2 providers and an Effect-native Telegram Bot DSL, built on
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Telegram from "alchemy-telegram";
+import * as TelegramCloudflare from "alchemy-telegram/Cloudflare";
 
 const Bot = Telegram.Bot(
   "Notifications",
@@ -18,17 +19,20 @@ const Bot = Telegram.Bot(
   }),
 );
 
-const Routes = Telegram.Webhook(Bot, {
-  origin: "https://bot.example.com",
+const Events = Telegram.consumeEvents(Bot, {
   path: "/api/telegram/webhook",
-});
+  events: ["message"],
+}).pipe(Effect.provide(TelegramCloudflare.BotEventSourceLive));
 ```
 
-Add `Telegram.providers()` to the Alchemy stack and merge `Routes` into the
-application's Effect `HttpRouter` route Layers. The caller always supplies the
-plan-resolvable origin as a literal, Config value, or Alchemy Output. In Alchemy
-`2.0.0-beta.74`, `Cloudflare.Worker.URL` itself is runtime-deferred and is not a
-plan-time Webhook origin.
+Run `Events` in a Cloudflare Worker's initialization Effect and add
+`Telegram.providers()` to the Alchemy stack. `consumeEvents` uses the
+host-neutral `BotEventSource` service; `BotEventSourceLive` derives the
+registration URL from its enclosing Worker and composes a stable secret, remote
+registration, verified Update delivery, and Bot dispatch. For registration
+without the event-source adapter, use the first-class
+`Telegram.Webhook("id", { token, url, ... })` resource; its `url` accepts an
+Alchemy Input directly.
 
 See the [Cloudflare Worker example](../../examples/cloudflare-worker) for a
 deployable multi-Bot stack, local fixtures, rotation, adoption, and security

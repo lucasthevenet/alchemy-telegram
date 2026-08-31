@@ -9,10 +9,20 @@ Add `TELEGRAM_BOT_TOKEN` as a GitHub Actions repository secret. It must belong
 to a dedicated Bot because scheduled and release validation temporarily mutates
 and restores its default Command Set.
 
-The first publication can use a granular npm access token with publish access,
-stored as the `NPM_TOKEN` repository secret. The release workflow still passes
-`--provenance` and has `id-token: write`, so npm emits provenance from the
-GitHub-hosted runner.
+For the first publication, create a short-lived granular npm access token with:
+
+- Packages and scopes: **Read and write**
+- Package selection: **All Packages** (the two package names do not exist yet)
+- **Bypass two-factor authentication** enabled
+
+Store it as the `NPM_TOKEN` repository secret. Bypass 2FA is disabled by default;
+without it, the non-interactive GitHub runner reaches `EOTP` and cannot complete
+the browser challenge. The release workflow still passes `--provenance` and has
+`id-token: write`, so npm emits provenance from the GitHub-hosted runner.
+
+If an initial release job fails with `EOTP`, replace `NPM_TOKEN` with a token
+configured as above and rerun the failed job. A new tag or GitHub Release is not
+required, provided neither package version reached the registry.
 
 After each package exists on npm, configure its npm trusted publisher with:
 
@@ -21,9 +31,10 @@ After each package exists on npm, configure its npm trusted publisher with:
 - Workflow: `release.yml`
 - Allowed action: publish
 
-Then remove `NPM_TOKEN`. Trusted publishing uses GitHub OIDC and automatically
-generates provenance without a long-lived write token. If the repository is
-private, npm cannot generate public provenance attestations.
+Then remove `NPM_TOKEN` and revoke the bootstrap token. Trusted publishing uses
+GitHub OIDC and automatically generates provenance without a long-lived write
+token. If the repository is private, npm cannot generate public provenance
+attestations.
 
 ## Prepare a release
 

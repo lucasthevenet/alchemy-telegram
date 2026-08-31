@@ -5,15 +5,16 @@ Effect-native Telegram bots managed with [Alchemy V2](https://alchemy.run/).
 This monorepo publishes two lockstep packages:
 
 - `distilled-telegram` — generated, Effect-native Telegram Bot API 10.3 SDK.
-- `alchemy-telegram` — Alchemy providers plus a typed Bot and Webhook DSL.
+- `alchemy-telegram` — Alchemy providers plus a typed Bot DSL and Webhook event
+  sources.
 
 The provider configures an existing bot token. Telegram bot identity creation and
 deletion remain outside its scope.
 
 The [deployable Cloudflare Worker example](./examples/cloudflare-worker) covers
 localized configuration, every Update Handler, multiple Bot Applications,
-local fixtures, explicit origins, token rotation, Webhook adoption, and
-production state security.
+local fixtures, Worker event consumption, token rotation, Webhook adoption,
+and production state security.
 
 ## Install
 
@@ -78,27 +79,68 @@ callback queries are answered automatically after successful handling unless
 `autoAnswer: false` is set. Calling `context.answerCallbackQuery(...)` answers
 explicitly and suppresses the automatic second answer.
 
-## Mount the Webhook route
+## Manage Webhook registration directly
 
-`Webhook` returns the complete Effect `HttpRouter` route Layer. The origin is
-explicit and may be a deferred Alchemy input:
+`Webhook` is a first-class Alchemy resource, matching the Alchemy GitHub
+provider's registration model. It owns Telegram's singleton Webhook for one Bot,
+accepts a deferred `url` input, updates it in place, repairs deletion, and
+unregisters only the URL it owns:
 
 ```ts
-import * as Config from "effect/Config";
-import * as Telegram from "alchemy-telegram";
-
-const TelegramRoutes = Telegram.Webhook(NotificationsBot, {
-  origin: Config.string("TELEGRAM_PUBLIC_ORIGIN"),
-  path: "/api/telegram/webhook",
+const registration = yield* Telegram.Webhook("NotificationsWebhook", {
+  token: Config.redacted("TELEGRAM_BOT_TOKEN"),
+  url: "https://bot.example.com/api/telegram/webhook",
+  secretToken: Config.redacted("TELEGRAM_WEBHOOK_SECRET"),
+  events: ["message", "callback_query"],
 });
 ```
 
-The origin must resolve during planning. Alchemy `2.0.0-beta.74` exposes
-`Cloudflare.Worker.URL` as a runtime-deferred accessor, so use a literal, Config
-value, or plan-resolvable Alchemy Output instead.
+The provider maps `events` to Telegram's `allowed_updates` request field.
 
-Merge `TelegramRoutes` with the rest of the application's route Layers and add
-the providers to the stack's provider Layer:
+Use this lower-level resource when another host or HTTP module owns delivery.
+The resource performs no host discovery. Its `url` accepts Alchemy Outputs, so
+it can depend directly on another resource declared in the same stack.
+
+## Consume events from a Worker
+
+`consumeEvents` is the higher-level interface. It follows
+[Alchemy's host/event-source pattern for GitHub](https://alchemy.run/github/events/#consume-events-from-a-worker)
+and crosses the host-neutral `BotEventSource` seam; the Cloudflare adapter
+declares the underlying Webhook, generates and binds its stable secret, claims
+the delivery path, and dispatches verified Updates to the Bot Application:
+
+```ts
+import * as Cloudflare from "alchemy/Cloudflare";
+import * as Telegram from "alchemy-telegram";
+import * as TelegramCloudflare from "alchemy-telegram/Cloudflare";
+import * as Effect from "effect/Effect";
+import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
+
+export const TelegramWorker = Cloudflare.Worker(
+  "TelegramWorker",
+  { main: import.meta.url },
+  Effect.gen(function* () {
+    yield* Telegram.consumeEvents(NotificationsBot, {
+      path: "/api/telegram/webhook",
+      events: ["message", "callback_query"],
+    });
+
+    return {
+      fetch: Effect.gen(function* () {
+        return HttpServerResponse.text("ok");
+      }),
+    };
+  }).pipe(Effect.provide(TelegramCloudflare.BotEventSourceLive)),
+);
+```
+
+The adapter derives the registration URL from the enclosing Worker's URL. A
+configured Worker domain therefore becomes the public Webhook origin without an
+`origin` prop. `path` is optional; omitting it uses a deterministic path for the
+Bot Application: `/__alchemy/telegram/<encoded Bot Application name>`.
+Requests outside the claimed path continue to the Worker's own `fetch` handler.
+
+Add the Telegram providers alongside the host providers in the stack:
 
 ```ts
 import * as Layer from "effect/Layer";
@@ -107,14 +149,17 @@ export const providers = () =>
   Layer.mergeAll(Cloudflare.providers(), Telegram.providers());
 ```
 
-The Webhook owns a stable 32-byte `Alchemy.Random` secret. Runtime requests are
-verified against Telegram's secret header and finish with `200`, `400`, `401`,
-or `500`. A localhost origin registers the route but deliberately skips
-Telegram's remote `setWebhook`, which makes fixture delivery safe during local
-development.
+The Bot Event Source owns a stable 32-byte `Alchemy.Random` secret. Runtime
+requests are verified against Telegram's secret header and finish with `200`,
+`400`, `401`, or `500`; a non-POST request on the claimed path receives `405`.
+Under `alchemy dev`, the Worker has a localhost URL: the listener and bindings
+remain active, but the Webhook provider deliberately skips Telegram's remote
+`setWebhook`, so local fixtures cannot displace a deployed Webhook and may omit
+the secret header.
 
-The public origin is always supplied by the caller; the provider performs no
-host discovery.
+`BotEventSource` is host-neutral; V1 ships only the Cloudflare Worker adapter.
+Other hosts can provide the service themselves or combine the lower-level
+`Telegram.Webhook` resource with delivery code they own.
 
 ## Direct Bot API access
 
@@ -208,8 +253,8 @@ unrecoverable process kill.
 Default Bot Profile mutation is intentionally excluded from repeatable live
 automation: Telegram applies approximately daily limits to name changes, and
 the irreducible default name cannot be cleared. Webhook HTTP delivery also
-requires a separately deployed public host and is covered by the portable route
-tests until a host-specific deployment fixture is supplied.
+requires a separately deployed public host and is covered by the Cloudflare Bot
+Event Source tests until a deployed-host fixture is supplied.
 
 `update:spec` is the only networked generation step. Normal generation uses the
 pinned official HTML/currencies snapshot, a pinned GramIO parser, repository

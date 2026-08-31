@@ -30,6 +30,12 @@
       "worker": "./src/index.ts",
       "default": "./lib/index.js"
     },
+    "./Cloudflare": {
+      "types": "./lib/Cloudflare.d.ts",
+      "bun": "./src/Cloudflare.ts",
+      "worker": "./src/Cloudflare.ts",
+      "default": "./lib/Cloudflare.js"
+    },
     "./*": {
       "types": "./lib/*.d.ts",
       "bun": "./src/*.ts",
@@ -53,11 +59,13 @@
   },
   "devDependencies": {
     "@effect/platform-bun": ">=4.0.0-rc.111 || >=4.0.0",
+    "@effect/platform-node": "4.0.0-rc.111",
     "@types/bun": "latest",
     "@types/node": "latest",
     "alchemy": "2.0.0-beta.74"
   },
   "peerDependencies": {
+    "@effect/platform-node": ">=4.0.0-rc.111 || >=4.0.0",
     "alchemy": "2.0.0-beta.74",
     "effect": ">=4.0.0-rc.111 || >=4.0.0"
   }

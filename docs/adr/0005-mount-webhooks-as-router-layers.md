@@ -1,14 +1,11 @@
-# Mount Webhooks as router Layers
+# Superseded: Mount Webhooks as router Layers
 
-`Telegram.Webhook(Bot, { origin, path })` returns the complete Effect `HttpRouter`
-route Layer and uses the same location to reconcile Telegram's webhook URL at
-deploy time.
-The handler awaits update processing: successful handling returns 200, invalid
-authentication returns 401, invalid input returns 400, and handler failure
-returns 500 so Telegram can retry. Callers must supply the public origin as a
-plan-resolvable literal, Config value, or Alchemy Output; the package combines
-it with the route path but never discovers a host URL automatically. Alchemy
-`2.0.0-beta.74` exposes `Cloudflare.Worker.URL` only through a runtime-deferred
-accessor, so it cannot provide the plan-time Telegram registration URL.
-Destroying the Webhook removes Telegram registration without dropping pending
-updates.
+Superseded by ADR 0017. The original design returned an Effect `HttpRouter`
+Layer from `Telegram.WebhookRoute(Bot, { origin, path })` and required the
+caller to supply the public origin.
+
+The current design uses the host-neutral `BotEventSource` seam.
+`Telegram.consumeEvents(Bot, options)` delegates registration and delivery to a
+host adapter. The Cloudflare adapter derives the delivery URL from its enclosing
+Worker, so the high-level interface has no `origin` prop and does not require
+callers to build or merge router Layers.

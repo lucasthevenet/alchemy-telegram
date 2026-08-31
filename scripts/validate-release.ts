@@ -59,9 +59,15 @@ const packages = [
     required: [
       "LICENSE",
       "README.md",
+      "lib/Cloudflare.d.ts",
+      "lib/Cloudflare.js",
+      "lib/events.d.ts",
+      "lib/events.js",
       "lib/index.d.ts",
       "lib/index.js",
       "package.json",
+      "src/Cloudflare.ts",
+      "src/events.ts",
       "src/index.ts",
     ],
   },
@@ -269,6 +275,14 @@ for (const entry of packages) {
       path.startsWith("tsconfig")
     ) {
       fail(`${entry.name}: tarball contains private build input ${path}`);
+    }
+    if (
+      entry.name === "alchemy-telegram" &&
+      /^(?:lib|src)\/webhook\.(?:d\.ts|d\.ts\.map|js|js\.map|ts)$/.test(path)
+    ) {
+      fail(
+        `${entry.name}: tarball contains removed WebhookRoute module ${path}`,
+      );
     }
   }
   console.log(`${entry.name}@${pack.version}: ${files.size} validated files.`);

@@ -1,17 +1,14 @@
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Telegram from "alchemy-telegram";
+import * as TelegramCloudflare from "alchemy-telegram/Cloudflare";
 import * as Config from "effect/Config";
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Scope from "effect/Scope";
-import * as HttpRouter from "effect/unstable/http/HttpRouter";
-import * as HttpServerError from "effect/unstable/http/HttpServerError";
+import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
 const PublicHost = Config.string("TELEGRAM_PUBLIC_HOST");
-const PublicOrigin = Config.string("TELEGRAM_PUBLIC_ORIGIN");
 
 const NotificationsBot = Telegram.Bot(
   "Notifications",
@@ -85,19 +82,27 @@ const OperationsBot = Telegram.Bot(
   }),
 );
 
-const Routes = Layer.mergeAll(
-  Telegram.Webhook(NotificationsBot, {
-    origin: PublicOrigin,
+const WorkerProgram = Effect.gen(function* () {
+  yield* Telegram.consumeEvents(NotificationsBot, {
     path: "/api/telegram/notifications",
-    allowedUpdates: ["message", "callback_query"],
-  }),
-  Telegram.Webhook(OperationsBot, {
-    origin: PublicOrigin,
+    events: ["message", "callback_query"],
+  });
+  yield* Telegram.consumeEvents(OperationsBot, {
     path: "/api/telegram/operations",
-    allowedUpdates: ["message"],
-  }),
-  HttpRouter.add("GET", "/health", HttpServerResponse.jsonUnsafe({ ok: true })),
-);
+    events: ["message"],
+  });
+
+  return {
+    fetch: Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const url = new URL(request.url, "https://worker.invalid");
+      if (request.method === "GET" && url.pathname === "/health") {
+        return HttpServerResponse.jsonUnsafe({ ok: true });
+      }
+      return HttpServerResponse.text("Not Found", { status: 404 });
+    }),
+  };
+}).pipe(Effect.provide(TelegramCloudflare.BotEventSourceLive));
 
 export default Alchemy.Stack(
   "TelegramExample",
@@ -109,24 +114,7 @@ export default Alchemy.Stack(
     const worker = yield* Cloudflare.Worker(
       "TelegramWorker",
       { main: import.meta.url, domain: PublicHost },
-      Effect.gen(function* () {
-        const runtimeScope = yield* Scope.make("sequential");
-        const routes = yield* Layer.buildWithScope(
-          Layer.provideMerge(Routes, HttpRouter.layer),
-          runtimeScope,
-        );
-        const router = Context.get(routes, HttpRouter.HttpRouter);
-        const fetch = router
-          .asHttpEffect()
-          .pipe(
-            Effect.catchCause((cause) =>
-              HttpServerError.causeResponse(cause).pipe(
-                Effect.map(([response]) => response),
-              ),
-            ),
-          );
-        return { fetch };
-      }),
+      WorkerProgram,
     );
 
     return { url: worker.url };

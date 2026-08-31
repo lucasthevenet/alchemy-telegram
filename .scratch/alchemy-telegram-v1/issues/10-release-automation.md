@@ -23,3 +23,5 @@ Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09
   restricted to a review branch and pull request.
 - Added initial `0.1.0` package metadata, Apache-2.0 notices, npm publishing
   configuration, and operator documentation for token-to-OIDC migration.
+- Clarified that the one-time first-publication token needs read/write access to
+  all packages and explicit bypass-2FA permission before it is replaced by OIDC.

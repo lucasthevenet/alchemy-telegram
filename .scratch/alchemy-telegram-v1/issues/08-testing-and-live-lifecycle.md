@@ -20,5 +20,6 @@ Blocked by: 04, 05, 06, 07
   typed/redacted API failures, and Command Set deploy/update/sync/destroy while
   restoring the previously observed Command Set in an Effect release finalizer.
 - Repeatable Bot Profile mutation is excluded after Telegram demonstrated a
-  roughly daily default-name rate limit. Host-neutral Webhook tests remain
-  local; a full HTTP delivery test still requires a public host fixture.
+  roughly daily default-name rate limit. The host-neutral `BotEventSource`
+  contract and Cloudflare adapter remain locally testable; a full Telegram HTTP
+  delivery test still requires a deployed public Worker fixture.

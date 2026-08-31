@@ -32,10 +32,18 @@ Application compiles its Commands into Command Sets for reconciliation.
 _Avoid_: Command list, individual command resource
 
 **Webhook**:
-The HTTP route and Telegram registration through which a Bot Application
-receives updates. A Webhook connects deploy-time configuration to an awaited
-runtime handler.
-_Avoid_: Webhook server, polling
+The singleton Bot API registration that tells Telegram where and how to deliver
+updates for one Bot. It is independently manageable Bot Configuration and does
+not imply any particular HTTP runtime.
+_Avoid_: Webhook Route, Webhook server, polling
+
+**Bot Event Source**:
+The host-neutral seam through which a Bot Application consumes Telegram
+Webhook deliveries. The public service is `BotEventSource`; a host adapter
+provisions the Webhook, binds its secret, claims the delivery path, verifies and
+decodes each Update, and awaits the Bot Application's Update Handler. The first
+adapter is `TelegramCloudflare.BotEventSourceLive` for Cloudflare Workers.
+_Avoid_: Webhook Route, Webhook resource, Bot fetch handler
 
 **Update Handler**:
 An Effect program registered for a typed Telegram Update variant. A Command is
