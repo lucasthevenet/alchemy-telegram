@@ -14,13 +14,11 @@ ignored `.env` file:
 ```dotenv
 NOTIFICATIONS_TELEGRAM_BOT_TOKEN=123456:notifications-secret
 OPERATIONS_TELEGRAM_BOT_TOKEN=654321:operations-secret
-TELEGRAM_PUBLIC_HOST=bots.example.com
 ```
 
-The public host must belong to a Cloudflare zone available to the deployment
-account. The provider configures existing Bot identities; it does not create or
-delete them. Keep test and development Bots separate from production Bots
-because a Bot can have only one active Webhook.
+The provider configures existing Bot identities; it does not create or delete
+them. Keep test and development Bots separate from production Bots because a
+Bot can have only one active Webhook.
 
 Install from the repository root:
 
@@ -72,9 +70,8 @@ bunx alchemy login
 bunx alchemy deploy
 ```
 
-`TELEGRAM_PUBLIC_HOST` configures the Worker's custom domain. The Bot Event
-Source uses that Worker's URL as the Webhook origin and combines it with each
-`consumeEvents` path:
+Alchemy provisions the Worker's public URL. The Bot Event Source uses that URL
+as the Webhook origin and combines it with each `consumeEvents` path:
 
 - `/api/telegram/notifications`
 - `/api/telegram/operations`

@@ -14,9 +14,9 @@
       },
       "tooling": {
         "@types/bun": "latest",
-         "@types/node": "latest",
-         "oxfmt": "latest",
-         "oxlint": "latest"
+        "@types/node": "latest",
+        "oxfmt": "latest",
+        "oxlint": "latest"
       },
       "effect": {
         "@effect/platform-bun": ">=4.0.0-rc.111 || >=4.0.0",
@@ -43,10 +43,12 @@
     "release:validate": "bun run check && bun run generate:check && bun run release:packages"
   },
   "devDependencies": {
+    "@effect/tsgo": "^0.38.0",
+    "@oxlint/plugins": "^1.80.0",
     "@types/bun": "catalog:tooling",
     "@types/node": "catalog:tooling",
-    "typescript": "catalog:build",
     "oxfmt": "catalog:tooling",
-    "oxlint": "catalog:tooling"
+    "oxlint": "catalog:tooling",
+    "typescript": "catalog:build"
   }
 }

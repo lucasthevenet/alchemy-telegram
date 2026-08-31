@@ -8,8 +8,6 @@ import * as Layer from "effect/Layer";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
-const PublicHost = Config.string("TELEGRAM_PUBLIC_HOST");
-
 const NotificationsBot = Telegram.Bot(
   "Notifications",
   {
@@ -113,7 +111,7 @@ export default Alchemy.Stack(
   Effect.gen(function* () {
     const worker = yield* Cloudflare.Worker(
       "TelegramWorker",
-      { main: import.meta.url, domain: PublicHost },
+      { main: import.meta.url },
       WorkerProgram,
     );
 
