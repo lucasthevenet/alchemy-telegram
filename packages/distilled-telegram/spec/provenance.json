@@ -1,11 +1,11 @@
 {
-  "refreshed_at": "2026-08-25T00:45:13.904Z",
+  "refreshed_at": "2026-11-10T15:14:44.149Z",
   "parser": "@gramio/schema-parser@1.2.0",
   "sources": {
     "spec/telegram-bot-api.html": {
       "url": "https://core.telegram.org/bots/api",
-      "sha256": "f3763048e2c38b9504f64c8b38929156d3fffdfcfeae1d591794590493068f34",
-      "bytes": 860065
+      "sha256": "e82559a96163020675742d0a7025d400e04668833b44e9a694ea7ed224b84acb",
+      "bytes": 902070
     },
     "spec/currencies.json": {
       "url": "https://core.telegram.org/bots/payments/currencies.json",
@@ -14,8 +14,8 @@
     },
     "spec/oracles/paulsonoflars-api.json": {
       "url": "https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/master/api.json",
-      "sha256": "721b79d431352eea4a9764ad5ee071f738a20373262bfb7da7171a5d2fe13f4f",
-      "bytes": 893817
+      "sha256": "aa8f85bec3756ae8ad899e918271e6234db180753cad56567a4f92cede2ef5f3",
+      "bytes": 944016
     }
   }
 }
